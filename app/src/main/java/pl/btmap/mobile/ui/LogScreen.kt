@@ -155,7 +155,7 @@ private fun LogRow(
                     station?.address ?: id.band?.shortName.orEmpty(),
                     color = if (station != null) Btmap.colors.accent else Btmap.colors.muted,
                     style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                    maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
                 e.bestDbm?.let {
                     Text("$it", style = MaterialTheme.typography.bodySmall, color = powerQuality(it, id.rat).color())

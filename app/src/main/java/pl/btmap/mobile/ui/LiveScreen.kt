@@ -484,6 +484,8 @@ private fun StationBlock(cell: Cell, state: LiveState, stationUrl: (Station) -> 
             .clickable(interaction, indication = LocalIndication.current) {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(stationUrl(station))))
             }
+            // Grows smoothly when a long station name needs another line.
+            .animateContentSize(spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessMediumLow))
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -492,7 +494,8 @@ private fun StationBlock(cell: Cell, state: LiveState, stationUrl: (Station) -> 
         Column(Modifier.weight(1f)) {
             Text(
                 station.address, color = Btmap.colors.accent, fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                // The whole name is shown; the tile grows instead of cutting it off.
+                style = MaterialTheme.typography.bodyLarge, maxLines = 5, overflow = TextOverflow.Ellipsis,
             )
             Text(
                 listOfNotNull(station.stationId, station.bands.takeIf { it.isNotEmpty() }?.joinToString(" · ")).joinToString("  ·  "),
@@ -672,7 +675,7 @@ private fun ListRow(
         subtitle?.let {
             Text(
                 it, style = MaterialTheme.typography.bodySmall, color = Btmap.colors.accent,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 86.dp, top = 2.dp),
+                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 86.dp, top = 2.dp),
             )
         }
     }
