@@ -89,13 +89,17 @@ class ShizukuBridge(context: Context) {
      * Runs a command with Shizuku's (shell) identity. `Shizuku.newProcess` is not public API in
      * Shizuku 13 but is still the supported way for short commands; it is called reflectively.
      */
-    private fun run(vararg command: String): Int = runCatching {
+    private fun run(vararg command: String): Int = exec(*command).first
+
+    /** Runs a shell command through Shizuku; returns exit code and combined output (-1 on failure). */
+    fun exec(vararg command: String): Pair<Int, String> = runCatching {
         val method = Shizuku::class.java.getDeclaredMethod(
             "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java,
         ).apply { isAccessible = true }
         val process = method.invoke(null, arrayOf(*command), null, null) as Process
-        process.waitFor()
-    }.getOrDefault(-1)
+        val out = process.inputStream.bufferedReader().readText() + process.errorStream.bufferedReader().readText()
+        process.waitFor() to out
+    }.getOrDefault(-1 to "")
 
     companion object {
         const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"

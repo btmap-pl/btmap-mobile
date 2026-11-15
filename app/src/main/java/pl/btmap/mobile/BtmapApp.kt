@@ -13,6 +13,7 @@ import pl.btmap.core.stations.StationSource
 import kotlinx.coroutines.flow.combine
 import pl.btmap.mobile.settings.SettingsStore
 import pl.btmap.mobile.tools.BandStore
+import pl.btmap.mobile.tools.NetworkControl
 import pl.btmap.mobile.tools.ShizukuBridge
 import pl.btmap.mobile.work.DatabaseWorker
 
@@ -20,6 +21,7 @@ class BtmapApp : Application() {
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val shizuku: ShizukuBridge by lazy { ShizukuBridge(this) }
     val bands: BandStore by lazy { BandStore(this, core, scope) }
+    val network: NetworkControl by lazy { NetworkControl(this, shizuku, core) }
     val core: BtmapCore by lazy {
         BtmapCore(this, settings.settings.value.apiBaseUrl).also(::applySettings)
     }

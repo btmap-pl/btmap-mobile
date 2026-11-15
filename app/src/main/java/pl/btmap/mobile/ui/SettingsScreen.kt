@@ -840,28 +840,57 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
     var feedback by remember { mutableStateOf<BandFeedback?>(null) }
     var naming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<BandPreset?>(null) }
-    LaunchedEffect(feedback) {
-        if (feedback != null) {
+    LaunchedEffect(feedback, busy) {
+        // The "in progress" banner stays until the result replaces it.
+        if (feedback != null && !busy) {
             kotlinx.coroutines.delay(5_000)
             feedback = null
         }
     }
 
+    val network = app.network
+    val support by network.bandLockSupport.collectAsStateWithLifecycle()
+    var modeBusy by remember { mutableStateOf(false) }
+    var mode by remember(slot) { mutableStateOf(network.mode(slot)) }
+
     fun apply(target: pl.btmap.mobile.tools.BandSelection, label: String) {
         val s = sim ?: return
         busy = true
+        feedback = BandFeedback(true, "Wymuszam i sprawdzam…", "SIM ${s.slotIndex + 1} na chwilę przejdzie na 3G, potem przez ~30 s sprawdzam, na jakim paśmie zostaje")
         scope.launch {
-            val result = runCatching { pl.btmap.mobile.tools.BandLock.apply(s.subscriptionId, target) }
-            val ok = result.getOrNull()
             val simLabel = "SIM ${s.slotIndex + 1} · " + Operators.displayName(s.registeredPlmn, s.networkOperatorName)
-            feedback = when {
-                result.isFailure -> BandFeedback(false, "Nie udało się wymusić pasm", result.exceptionOrNull()?.message ?: "Błąd połączenia z Shizuku")
-                ok == false -> BandFeedback(false, "Modem odrzucił konfigurację", "$simLabel · spróbuj innego zestawu pasm")
-                target.isUnrestricted -> BandFeedback(true, "Odblokowano wszystkie pasma", simLabel)
-                else -> BandFeedback(true, if (ok == true) "Wymuszono pasma" else "Wysłano do modemu", "$simLabel · $label")
+            val outcome = network.applyBands(s.slotIndex, s.subscriptionId, target)
+            feedback = when (outcome) {
+                is pl.btmap.mobile.tools.BandLockOutcome.Applied -> BandFeedback(true, "Wymuszono pasma", "$simLabel · teraz ${outcome.band}")
+                is pl.btmap.mobile.tools.BandLockOutcome.Ignored -> BandFeedback(false, "Modem zignorował blokadę", "$simLabel · nadal ${outcome.band}. Ten telefon nie pozwala blokować pasm bez roota — użyj trybu sieci.")
+                pl.btmap.mobile.tools.BandLockOutcome.NoService -> BandFeedback(false, "Brak zasięgu na wybranych pasmach", "$simLabel · odblokuj więcej pasm")
+                pl.btmap.mobile.tools.BandLockOutcome.Restored -> BandFeedback(true, "Odblokowano wszystkie pasma", simLabel)
+                is pl.btmap.mobile.tools.BandLockOutcome.Failed -> BandFeedback(false, "Nie udało się", outcome.message)
             }
-            if (result.isSuccess && ok != false) store.setActive(s.slotIndex, target)
+            val keep = outcome is pl.btmap.mobile.tools.BandLockOutcome.Applied || outcome is pl.btmap.mobile.tools.BandLockOutcome.NoService ||
+                outcome is pl.btmap.mobile.tools.BandLockOutcome.Restored
+            // A lock the modem ignores is lifted again so the app never claims a restriction that is not real.
+            if (outcome is pl.btmap.mobile.tools.BandLockOutcome.Ignored) {
+                runCatching { pl.btmap.mobile.tools.BandLock.apply(s.subscriptionId, pl.btmap.mobile.tools.BandSelection()) }
+                store.setActive(s.slotIndex, pl.btmap.mobile.tools.BandSelection())
+            } else if (keep) {
+                store.setActive(s.slotIndex, target)
+            }
             busy = false
+        }
+    }
+
+    fun applyMode(preset: pl.btmap.mobile.tools.NetworkModePreset) {
+        val s = sim ?: return
+        modeBusy = true
+        scope.launch {
+            val error = network.setMode(s.slotIndex, preset)
+            val simLabel = "SIM ${s.slotIndex + 1} · " + Operators.displayName(s.registeredPlmn, s.networkOperatorName)
+            feedback = if (error == null) {
+                mode = preset
+                BandFeedback(true, "Tryb sieci: ${preset.label}", simLabel)
+            } else BandFeedback(false, "Nie udało się zmienić trybu sieci", error)
+            modeBusy = false
         }
     }
 
@@ -935,8 +964,60 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
             }
         }
 
+        // ---- Network mode (works on every phone) ----
+        Card(Modifier.enterAnimation(2)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Tryb sieci", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (modeBusy) Text("zmieniam…", style = MaterialTheme.typography.labelMedium, color = Btmap.colors.accent)
+            }
+            Text("Które technologie może używać karta. Działa na każdym telefonie.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+            Spacer(Modifier.height(12.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                pl.btmap.mobile.tools.NetworkModePreset.entries.forEach { preset ->
+                    val on = preset == mode
+                    val interaction = remember { MutableInteractionSource() }
+                    val bg by animateColorAsState(if (on) Btmap.colors.accent.copy(alpha = 0.16f) else Color.Transparent, tween(200), label = "modeBg")
+                    val border by animateColorAsState(if (on) Btmap.colors.accent else Btmap.colors.divider, tween(200), label = "modeBorder")
+                    Column(
+                        Modifier
+                            .pressScale(interaction)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(bg)
+                            .border(1.dp, border, RoundedCornerShape(14.dp))
+                            .clickable(interaction, LocalIndication.current, enabled = !modeBusy && !on) { applyMode(preset) }
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                    ) {
+                        Text(preset.label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = if (on) Btmap.colors.accent else MaterialTheme.colorScheme.onSurface)
+                        Text(preset.description, style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
+                    }
+                }
+            }
+        }
+
+        // ---- Band support on this phone ----
+        if (support != pl.btmap.mobile.tools.BandLockSupport.UNKNOWN) {
+            val works = support == pl.btmap.mobile.tools.BandLockSupport.WORKS
+            Row(
+                Modifier
+                    .enterAnimation(2)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background((if (works) Btmap.colors.good else Btmap.colors.poor).copy(alpha = 0.10f))
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PulseDot(if (works) Btmap.colors.good else Btmap.colors.poor, active = false)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    if (works) "Modem tego telefonu respektuje blokadę pasm."
+                    else "Modem tego telefonu ignoruje blokadę pasm (ogranicza tylko skanowanie w tle). Bez roota zostaje tryb sieci.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+
         // ---- LTE / NR ----
-        BandCard("LTE", lteBands, lte, observed.lte, 2, { "B$it" }, { pl.btmap.mobile.tools.BandLock.lteLabel(it) }) { lte = it }
+        BandCard("LTE", lteBands, lte, observed.lte, 3, { "B$it" }, { pl.btmap.mobile.tools.BandLock.lteLabel(it) }) { lte = it }
         BandCard("5G NR", nrBands, nr, observed.nr, 3, { "n$it" }, { pl.btmap.mobile.tools.BandLock.nrLabel(it) }) { nr = it }
 
         Row(Modifier.enterAnimation(4), verticalAlignment = Alignment.CenterVertically) {
@@ -952,7 +1033,7 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                 when {
                     busy -> "Wysyłam do modemu…"
                     blocked -> "Zostaw co najmniej jedno pasmo LTE i 5G"
-                    changed -> "Wymuś wybrane pasma"
+                    changed -> "Wymuś wybrane pasma i sprawdź"
                     else -> "Bez zmian"
                 },
                 primary = changed && !blocked && !busy,

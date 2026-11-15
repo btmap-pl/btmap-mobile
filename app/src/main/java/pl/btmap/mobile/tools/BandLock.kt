@@ -4,6 +4,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.Parcel
+import android.util.Log
 import android.telephony.AccessNetworkConstants
 import android.telephony.RadioAccessSpecifier
 import kotlinx.coroutines.CompletableDeferred
@@ -30,6 +31,7 @@ data class BandSelection(val lte: Set<Int> = emptySet(), val nr: Set<Int> = empt
  */
 object BandLock {
 
+    private const val TAG = "BtmapBandLock"
     private const val TELEPHONY = "com.android.internal.telephony.ITelephony"
     private const val BOOLEAN_CONSUMER = "com.android.internal.telephony.IBooleanConsumer"
 
@@ -71,12 +73,17 @@ object BandLock {
         val data = Parcel.obtain()
         val reply = Parcel.obtain()
         try {
+            Log.i(TAG, "setSystemSelectionChannels code=$setCode subId=$subId selection=$selection")
             data.writeInterfaceToken(TELEPHONY)
             data.writeTypedList(specifiers(selection))
             data.writeInt(subId)
             data.writeStrongBinder(callback)
-            binder.transact(setCode, data, reply, 0)
+            val sent = binder.transact(setCode, data, reply, 0)
+            Log.i(TAG, "transact returned $sent")
             reply.readException()
+        } catch (e: Throwable) {
+            Log.e(TAG, "band lock failed", e)
+            throw e
         } finally {
             data.recycle()
             reply.recycle()
