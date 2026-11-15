@@ -29,7 +29,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import pl.btmap.core.model.Carrier
 import pl.btmap.core.model.Cell
+import pl.btmap.core.model.CellSignal
 import pl.btmap.core.model.CellIdentity
 import pl.btmap.core.model.CellRole
 import pl.btmap.core.model.NetworkMode
@@ -197,6 +199,7 @@ class CellMonitor(
         // bandwidth learned for this cell; CellIdentity's own value is often bogus.
         val parsed = inputs.cellInfo.mapNotNull(CellInfoParser::parse).map { cell ->
             if (cell.role != CellRole.PRIMARY) return@map cell
+            val cell = withRegistrySignal(cell, inputs.signal)
             val id = cell.identity
             val bw = bandwidths.firstOrNull()
                 ?: dictionary.lookup(id.plmn ?: plmn, id.rat, id.channel, id.physicalId)?.bandwidthKhz
@@ -211,7 +214,9 @@ class CellMonitor(
             .sortedWith(compareBy<Cell>({ it.role.ordinal }, { -(it.signal.mainDbm ?: -200) }))
 
         val modem = physicalChannels()?.get(sub.simSlotIndex)
+        remember(sub.simSlotIndex, cells)
         val carriers = CarrierResolver.resolve(cells, bandwidths, plmn, dictionary, modem)
+            .map { withRecentSignal(sub.simSlotIndex, it) }
         val hasNrLeg = cells.any { it.rat == Rat.NR && it.role != CellRole.NEIGHBOUR }
         val announced = networkMode(cells, inputs.display, bandwidths)
         // Android reports NR_NSA as soon as the anchor advertises EN-DC; only call it 5G with a live NR leg.
@@ -237,6 +242,70 @@ class CellMonitor(
             updatedAtMillis = System.currentTimeMillis(),
             error = inputs.error,
         )
+    }
+
+    /**
+     * MIUI/MediaTek report SNR (and CQI) as 0 in CellInfo but give the real values in SignalStrength,
+     * which is also what the status bar uses. Take the serving cell's quality figures from there.
+     */
+    private fun withRegistrySignal(cell: Cell, signal: SignalStrength?): Cell {
+        signal ?: return cell
+        return when (cell.rat) {
+            Rat.LTE -> {
+                val lte = signal.getCellSignalStrengths(android.telephony.CellSignalStrengthLte::class.java).firstOrNull() ?: return cell
+                val snr = lte.rssnr.takeIf { it != android.telephony.CellInfo.UNAVAILABLE && it in -30..50 }
+                val cqi = lte.cqi.takeIf { it != android.telephony.CellInfo.UNAVAILABLE && it in 1..15 }
+                val s = cell.signal
+                cell.copy(
+                    signal = s.copy(
+                        snr = if (s.snr == null || s.snr == 0) snr ?: s.snr else s.snr,
+                        cqi = s.cqi ?: cqi,
+                        rsrq = s.rsrq ?: lte.rsrq.takeIf { it != android.telephony.CellInfo.UNAVAILABLE },
+                    ),
+                )
+            }
+            Rat.NR -> {
+                val nr = signal.getCellSignalStrengths(CellSignalStrengthNr::class.java).firstOrNull() ?: return cell
+                val sinr = nr.ssSinr.takeIf { it != android.telephony.CellInfo.UNAVAILABLE && it in -30..50 }
+                val s = cell.signal
+                cell.copy(signal = s.copy(ssSinr = if (s.ssSinr == null || s.ssSinr == 0) sinr ?: s.ssSinr else s.ssSinr))
+            }
+            else -> cell
+        }
+    }
+
+    /** Last measurement per SIM and physical cell (RAT, channel, PCI), with its time. */
+    private val recent = java.util.concurrent.ConcurrentHashMap<String, Pair<CellSignal, Long>>()
+
+    private fun physKey(slot: Int, rat: Rat, channel: Int?, pci: Int?) =
+        if (channel == null || pci == null) null else "$slot:$rat:$channel:$pci"
+
+    private fun remember(slot: Int, cells: List<Cell>) {
+        val now = System.currentTimeMillis()
+        cells.forEach { c ->
+            if (c.signal.mainDbm == null) return@forEach
+            physKey(slot, c.rat, c.identity.channel, c.identity.physicalId)?.let { recent[it] = c.signal to now }
+        }
+    }
+
+    /**
+     * A secondary carrier the modem does not measure in this sample gets its last real measurement
+     * (the modem lists the SCell among neighbours every few seconds), up to [RECENT_MS] old.
+     */
+    private fun withRecentSignal(slot: Int, carrier: Carrier): Carrier {
+        if (carrier.isPrimary || carrier.cell?.signal?.mainDbm != null) return carrier
+        val key = physKey(slot, carrier.rat, carrier.channel, carrier.physicalId) ?: return carrier
+        val (signal, at) = recent[key] ?: return carrier
+        val age = System.currentTimeMillis() - at
+        if (age > RECENT_MS) return carrier
+        val identity = carrier.identity ?: CellIdentity(
+            rat = carrier.rat, plmn = null, cid = null, nodeId = null, localCellId = null, areaCode = null,
+            physicalId = carrier.physicalId, channel = carrier.channel, band = carrier.band,
+        )
+        // Neighbour measurements carry MIUI's placeholder SNR of 0; show none rather than a fake value.
+        val clean = signal.copy(snr = signal.snr?.takeIf { it != 0 }, cqi = null)
+        val cell = Cell(identity.copy(bandwidthKhz = carrier.bandwidthKhz), clean, CellRole.SECONDARY, null, 0)
+        return carrier.copy(cell = cell, identity = identity, signalAgeMs = age)
     }
 
     /**
@@ -296,6 +365,8 @@ class CellMonitor(
     }
 
     companion object {
+        private const val RECENT_MS = 60_000L
+
         val REQUIRED_PERMISSIONS = arrayOf(
             Manifest.permission.READ_PHONE_STATE,
             Manifest.permission.ACCESS_FINE_LOCATION,

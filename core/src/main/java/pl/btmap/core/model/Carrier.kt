@@ -25,6 +25,8 @@ data class Carrier(
     val cell: Cell?,
     /** Best known identity: the measured cell's, or one learned earlier on this channel. */
     val identity: CellIdentity? = cell?.identity,
+    /** Age of [cell]'s signal when it comes from an earlier measurement (the modem reports SCells only now and then). */
+    val signalAgeMs: Long? = null,
 ) {
     val bandwidthMhz: Int? get() = bandwidthKhz?.let { it / 1000 }
 

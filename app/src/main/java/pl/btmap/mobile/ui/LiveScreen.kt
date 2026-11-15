@@ -213,6 +213,13 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
                     NoMeasurement(carrier)
                 } else {
                     SignalHero(cell)
+                    carrier?.signalAgeMs?.takeIf { !carrier.isPrimary }?.let { age ->
+                        Text(
+                            if (age < 3_000) "Pomiar SCell z modemu" else "Ostatni pomiar SCell z modemu · ${age / 1000} s temu",
+                            style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
                     Spacer(Modifier.height(12.dp))
                     MetricsRow(cell)
                 }
@@ -416,12 +423,12 @@ private fun NoMeasurement(carrier: Carrier) {
         MiniBars(0f, Btmap.colors.faint)
         Spacer(Modifier.width(12.dp))
         Column {
-            Text("Brak osobnego pomiaru", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text("Czekam na pomiar tego pasma", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(
                 when (carrier.source) {
-                    CarrierSource.LEARNED -> "Modem raportuje sygnał tylko dla PCell. Dane komórki pochodzą z wcześniejszego połączenia."
+                    CarrierSource.LEARNED -> "Modem mierzy to pasmo co kilka sekund — wynik pojawi się tutaj."
                     CarrierSource.STATION -> "Pasmo ustalone na podstawie stacji w BTMap."
-                    else -> "Modem raportuje sygnał tylko dla PCell."
+                    else -> "Modem mierzy to pasmo co kilka sekund — wynik pojawi się tutaj."
                 },
                 style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
             )
@@ -634,8 +641,14 @@ private fun CarrierTile(carrier: Carrier, index: Int, primaryRat: Rat, brand: Co
         }
         Column(horizontalAlignment = Alignment.End) {
             AnimatedNumber(dbm, MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold), q.color())
-            if (dbm != null) MiniBars(powerFraction(dbm), q.color()) else
-                Text("brak pomiaru", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.faint)
+            if (dbm != null) {
+                MiniBars(powerFraction(dbm), q.color())
+                carrier.signalAgeMs?.takeIf { it >= 3_000 }?.let {
+                    Text("${it / 1000} s temu", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.faint)
+                }
+            } else {
+                Text("czekam na pomiar", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.faint)
+            }
         }
     }
 }
