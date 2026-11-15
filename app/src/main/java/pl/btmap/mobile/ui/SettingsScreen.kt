@@ -92,7 +92,6 @@ private enum class SettingsPage(val title: String) {
     APPEARANCE("Wygląd"),
     MEASUREMENTS("Pomiary"),
     NOTIFICATION("Powiadomienie"),
-    SERVER("Serwer BTMap"),
     DATA("Dane"),
     ABOUT("O aplikacji"),
 }
@@ -142,7 +141,6 @@ fun SettingsScreen(
                         SettingsPage.APPEARANCE -> AppearancePage(settings, onChange)
                         SettingsPage.MEASUREMENTS -> MeasurementsPage(settings, onChange)
                         SettingsPage.NOTIFICATION -> NotificationPage(settings, onChange)
-                        SettingsPage.SERVER -> ServerSettings(settings, onChange)
                         SettingsPage.DATA -> DataSettings(core, logSize)
                         SettingsPage.ABOUT -> About()
                     }
@@ -168,7 +166,6 @@ private fun SettingsMenu(settings: Settings, core: BtmapCore, logSize: Int, onOp
         Triple(SettingsPage.APPEARANCE, "Motyw: $theme · sąsiednie ${if (settings.showNeighbours) "widoczne" else "ukryte"}") { c -> ThemeIcon(c) },
         Triple(SettingsPage.MEASUREMENTS, "Odświeżanie co ${settings.liveRefreshMs / 1000} s · w tle oszczędnie") { c -> LiveIcon(c) },
         Triple(SettingsPage.NOTIFICATION, "Pasma, $notification") { c -> Icon(Icons.Outlined.Notifications, null, tint = c) },
-        Triple(SettingsPage.SERVER, host) { c -> Icon(Icons.Outlined.Place, null, tint = c) },
         Triple(SettingsPage.DATA, "$logSize w logu · ${core.dictionary.size} nauczonych") { c -> LogIcon(c) },
         Triple(SettingsPage.ABOUT, "Wersja ${BuildConfig.VERSION_NAME} · MIT") { c -> Icon(Icons.Outlined.Info, null, tint = c) },
     )
