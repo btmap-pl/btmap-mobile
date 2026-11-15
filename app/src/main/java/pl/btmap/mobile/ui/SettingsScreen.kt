@@ -3,6 +3,14 @@ package pl.btmap.mobile.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import pl.btmap.core.stations.DbOperators
+import pl.btmap.core.stations.ImportState
+import pl.btmap.core.stations.StationSource
+import pl.btmap.mobile.work.DatabaseWorker
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.scaleIn
@@ -89,6 +97,7 @@ import java.util.Locale
 
 /** Settings categories, shown as a menu; each opens its own page. */
 private enum class SettingsPage(val title: String) {
+    DATABASE("Baza danych"),
     APPEARANCE("Wygląd"),
     MEASUREMENTS("Pomiary"),
     NOTIFICATION("Powiadomienie"),
@@ -138,6 +147,7 @@ fun SettingsScreen(
                 }
                 Card(Modifier.enterAnimation(1)) {
                     when (current) {
+                        SettingsPage.DATABASE -> DatabasePage(settings, onChange, core)
                         SettingsPage.APPEARANCE -> AppearancePage(settings, onChange)
                         SettingsPage.MEASUREMENTS -> MeasurementsPage(settings, onChange)
                         SettingsPage.NOTIFICATION -> NotificationPage(settings, onChange)
@@ -162,7 +172,15 @@ private fun SettingsMenu(settings: Settings, core: BtmapCore, logSize: Int, onOp
     val host = runCatching { Uri.parse(settings.apiBaseUrl).host + (Uri.parse(settings.apiBaseUrl).port.takeIf { it > 0 }?.let { ":$it" } ?: "") }
         .getOrNull() ?: settings.apiBaseUrl
 
+    val dbState by core.stations.state.collectAsStateWithLifecycle()
+    val dbVersion by core.stations.version.collectAsStateWithLifecycle()
+    val dbInfo = remember(settings.database, dbState, dbVersion) { core.stations.info(settings.database) }
+    val dbSummary = when (val st = dbState) {
+        is ImportState.Running -> "${st.source.label} · pobieram…"
+        else -> settings.database.label + " · " + (dbInfo?.let { "${formatCount(it.sites)} stacji" } ?: "nie pobrano")
+    }
     val items: List<Triple<SettingsPage, String, @Composable (Color) -> Unit>> = listOf(
+        Triple(SettingsPage.DATABASE, dbSummary) { c -> DatabaseIcon(c) },
         Triple(SettingsPage.APPEARANCE, "Motyw: $theme · sąsiednie ${if (settings.showNeighbours) "widoczne" else "ukryte"}") { c -> ThemeIcon(c) },
         Triple(SettingsPage.MEASUREMENTS, "Odświeżanie co ${settings.liveRefreshMs / 1000} s · w tle oszczędnie") { c -> LiveIcon(c) },
         Triple(SettingsPage.NOTIFICATION, "Pasma, $notification") { c -> Icon(Icons.Outlined.Notifications, null, tint = c) },
@@ -212,6 +230,159 @@ private fun Chevron(color: Color) {
         drawLine(color, Offset(size.width * 0.35f, size.height * 0.2f), Offset(size.width * 0.7f, size.height / 2), w, StrokeCap.Round)
         drawLine(color, Offset(size.width * 0.7f, size.height / 2), Offset(size.width * 0.35f, size.height * 0.8f), w, StrokeCap.Round)
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) -> Unit, core: BtmapCore) {
+    val context = LocalContext.current
+    val state by core.stations.state.collectAsStateWithLifecycle()
+    val version by core.stations.version.collectAsStateWithLifecycle()
+    val info = remember(settings.database, state, version) { core.stations.info(settings.database) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    Label("Źródło")
+    Segmented(
+        options = StationSource.entries.map { it to it.label },
+        selected = settings.database,
+        onSelect = { src -> onChange { it.copy(database = src) } },
+    )
+    Spacer(Modifier.height(10.dp))
+    Hint(
+        when (settings.database) {
+            StationSource.BTMAP -> "Stacje dodane i zweryfikowane przez społeczność BTMap, bez danych z rejestru UKE."
+            StationSource.BTSEARCH -> "Baza btsearch.pl tworzona przez pasjonatów. Plik obejmuje całą Polskę, więc pobranie trwa kilka minut; zapisywani są tylko wybrani operatorzy."
+        },
+    )
+
+    AnimatedVisibility(settings.database == StationSource.BTSEARCH, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        Column {
+            Spacer(Modifier.height(18.dp))
+            Label("Operatorzy")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                DbOperators.ALL.forEach { op ->
+                    val on = op.mnc in settings.btsearchMncs
+                    val interaction = remember { MutableInteractionSource() }
+                    Pill(
+                        op.name,
+                        if (on) Btmap.colors.accent else Btmap.colors.muted,
+                        style = if (on) PillStyle.FILLED else PillStyle.OUTLINED,
+                        modifier = Modifier
+                            .pressScale(interaction)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(interaction, LocalIndication.current) {
+                                onChange {
+                                    val next = if (on) it.btsearchMncs - op.mnc else it.btsearchMncs + op.mnc
+                                    it.copy(btsearchMncs = next.ifEmpty { it.btsearchMncs })
+                                }
+                            },
+                    )
+                }
+            }
+            val downloaded = info?.detail?.split(',')?.mapNotNull(String::toIntOrNull)?.toSet()
+            if (info != null && downloaded != settings.btsearchMncs) {
+                Spacer(Modifier.height(8.dp))
+                Text("Zmieniono operatorów — pobierz bazę ponownie, aby to zastosować.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.poor)
+            }
+        }
+    }
+
+    Spacer(Modifier.height(18.dp))
+    Label("Automatyczna aktualizacja")
+    Segmented(
+        options = Settings.DB_REFRESH_OPTIONS,
+        selected = settings.dbRefreshDays,
+        onSelect = { days -> onChange { it.copy(dbRefreshDays = days) } },
+    )
+    Spacer(Modifier.height(8.dp))
+    ToggleRow("Tylko przez Wi-Fi", "Nie zużywa danych komórkowych; pobiera też tylko przy niewyczerpanej baterii", settings.dbWifiOnly) { on ->
+        onChange { it.copy(dbWifiOnly = on) }
+    }
+
+    Spacer(Modifier.height(14.dp))
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Btmap.colors.cardRaised)
+            .padding(14.dp),
+    ) {
+        Column {
+            when (val st = state) {
+                is ImportState.Running -> {
+                    Text("Pobieram ${st.source.label}…", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(50)),
+                        color = Btmap.colors.accent,
+                        trackColor = Btmap.colors.meterTrack,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "${formatBytes(st.bytes)} · ${formatCount(st.cells)} komórek zapisanych",
+                        style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
+                    )
+                }
+                else -> {
+                    if (info != null) {
+                        StatRow("Zaktualizowano", SimpleDateFormat("d.MM.yyyy HH:mm", Locale.getDefault()).format(Date(info.updatedAtMillis)))
+                        StatRow("Stacje", formatCount(info.sites))
+                        StatRow("Komórki", formatCount(info.cells))
+                    } else {
+                        Text("Baza nie została jeszcze pobrana.", style = MaterialTheme.typography.bodyMedium, color = Btmap.colors.muted)
+                    }
+                    if (st is ImportState.Failed && st.source == settings.database) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("Ostatnie pobieranie nie powiodło się: ${st.message}", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.bad)
+                    }
+                    if (info != null && info.cells == 0 && settings.database == StationSource.BTMAP) {
+                        Spacer(Modifier.height(6.dp))
+                        Text("W BTMap nie ma jeszcze stacji spoza UKE.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+                    }
+                }
+            }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (state is ImportState.Running) {
+            ActionButton("Anuluj", danger = true) { DatabaseWorker.cancel(context) }
+        } else {
+            ActionButton(if (info == null) "Pobierz teraz" else "Aktualizuj teraz", primary = true) {
+                DatabaseWorker.runNow(context, settings)
+            }
+            ActionButton("Usuń bazę", enabled = info != null, danger = true) { confirmDelete = true }
+        }
+    }
+    if (settings.dbWifiOnly && state !is ImportState.Running) {
+        Spacer(Modifier.height(6.dp))
+        Hint("Pobieranie ruszy, gdy telefon będzie połączony z Wi-Fi.")
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Usunąć bazę ${settings.database.label}?") },
+            text = { Text("Stacje przestaną być rozpoznawane, dopóki baza nie zostanie pobrana ponownie.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    core.stations.clear(settings.database)
+                }) { Text("Usuń", color = Btmap.colors.bad) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Anuluj") } },
+            containerColor = Btmap.colors.card,
+        )
+    }
+}
+
+private fun formatCount(n: Int): String = "%,d".format(Locale("pl"), n).replace('\u00A0', ' ')
+
+private fun formatBytes(b: Long): String = when {
+    b >= 1_000_000 -> "%.1f MB".format(b / 1_000_000.0)
+    b >= 1_000 -> "${b / 1_000} kB"
+    else -> "$b B"
 }
 
 @Composable

@@ -31,7 +31,9 @@ import pl.btmap.core.model.CellIdentity
 import pl.btmap.core.model.SimState
 import pl.btmap.core.radio.Bands
 import pl.btmap.core.model.NetworkSnapshot
+import pl.btmap.core.stations.StationRepository
 import pl.btmap.core.telephony.CellDictionary
+import kotlinx.coroutines.withContext
 import pl.btmap.core.telephony.CellMonitor
 import java.io.File
 
@@ -94,6 +96,9 @@ class BtmapCore(
     val monitor = CellMonitor(context, refreshIntervalMs, dictionary)
     val location = LocationTracker(context)
     val api = BtmapApi(apiBaseUrl)
+
+    /** Downloaded station database (BTMap without UKE, or BTSearch) used for station lookups. */
+    val stations = StationRepository(context)
     val log = CellLog(File(context.filesDir, "cell-log.json"))
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -107,6 +112,13 @@ class BtmapCore(
 
     init {
         scope.launch(Dispatchers.IO) { log.loadFromDisk() }
+        // New data or another database: forget resolved stations so cells are looked up again.
+        scope.launch {
+            stations.version.collect {
+                synchronized(inFlight) { failedAt.clear() }
+                _state.update { it.copy(stations = emptyMap()) }
+            }
+        }
     }
 
     fun hasPermissions() = monitor.hasPermissions()
@@ -242,7 +254,7 @@ class BtmapCore(
             if (!claimed) continue
             scope.launch {
                 try {
-                    val station = api.stationFor(key)
+                    val station = withContext(Dispatchers.IO) { stations.find(key) }
                     synchronized(inFlight) { failedAt.remove(key) }
                     _state.update { it.copy(stations = it.stations + (key to station), apiError = null) }
                 } catch (e: Exception) {

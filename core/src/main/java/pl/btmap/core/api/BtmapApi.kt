@@ -31,6 +31,8 @@ data class Station(
     /** True when the eNB/gNB is linked to this site on BTMap (not just a search hit). */
     val nodeLinked: Boolean,
     val distanceKm: Double? = null,
+    /** Page to open for the station; null = BTMap station page. */
+    val url: String? = null,
 )
 
 /** Which node a station lookup is for; also the cache key. */
@@ -131,7 +133,7 @@ class BtmapApi(
     /** `GET /api/health` — reachability check for settings / diagnostics. */
     suspend fun health(): JSONObject = getJson("/api/health", emptyMap())
 
-    fun stationUrl(station: Station): String = "$base/?station=${encode(station.id)}"
+    fun stationUrl(station: Station): String = station.url ?: "$base/?station=${encode(station.id)}"
 
     private fun parseStation(o: JSONObject, key: NodeKey?): Station {
         val operators = o.optJSONArray("operators") ?: JSONArray()

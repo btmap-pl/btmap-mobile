@@ -384,3 +384,21 @@ fun SettingsIcon(color: Color, modifier: Modifier = Modifier) {
         drawCircle(color, radius = size.minDimension * 0.13f, center = c, style = Stroke(1.7.dp.toPx()))
     }
 }
+
+/** Database cylinder: station database settings. */
+@Composable
+fun DatabaseIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(22.dp)) {
+        val stroke = Stroke(1.7.dp.toPx())
+        val w = size.width * 0.72f
+        val left = (size.width - w) / 2
+        val h = size.height * 0.22f
+        val top = size.height * 0.12f
+        val bottom = size.height * 0.88f - h
+        drawOval(color, Offset(left, top), Size(w, h), style = stroke)
+        drawArc(color, 0f, 180f, false, Offset(left, (top + bottom) / 2), Size(w, h), style = stroke)
+        drawArc(color, 0f, 180f, false, Offset(left, bottom), Size(w, h), style = stroke)
+        drawLine(color, Offset(left, top + h / 2), Offset(left, bottom + h / 2), stroke.width)
+        drawLine(color, Offset(left + w, top + h / 2), Offset(left + w, bottom + h / 2), stroke.width)
+    }
+}

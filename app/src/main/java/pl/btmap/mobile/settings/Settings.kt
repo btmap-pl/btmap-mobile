@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import pl.btmap.core.stations.DbOperators
+import pl.btmap.core.stations.StationSource
 import pl.btmap.mobile.BuildConfig
 import pl.btmap.mobile.ui.theme.ThemeMode
 
@@ -19,9 +21,18 @@ data class Settings(
     val notificationOtherSim: Boolean = true,
     /** Show neighbour cells on the Live screen. */
     val showNeighbours: Boolean = true,
+    /** Station database used for lookups. */
+    val database: StationSource = StationSource.BTMAP,
+    /** BTSearch: operators (MNC) to keep. */
+    val btsearchMncs: Set<Int> = DbOperators.DEFAULT_MNCS,
+    /** Days between automatic database downloads; 0 = only by hand. */
+    val dbRefreshDays: Int = 7,
+    /** Download the database only on Wi-Fi (BTSearch is a large file). */
+    val dbWifiOnly: Boolean = true,
 ) {
     companion object {
         val REFRESH_OPTIONS = listOf(1_000L, 2_000L, 5_000L)
+        val DB_REFRESH_OPTIONS = listOf(1 to "Codziennie", 7 to "Co tydzień", 30 to "Co miesiąc", 0 to "Ręcznie")
     }
 }
 
@@ -50,6 +61,10 @@ class SettingsStore(context: Context) {
             notificationStation = prefs.getBoolean("notificationStation", d.notificationStation),
             notificationOtherSim = prefs.getBoolean("notificationOtherSim", d.notificationOtherSim),
             showNeighbours = prefs.getBoolean("showNeighbours", d.showNeighbours),
+            database = runCatching { StationSource.valueOf(prefs.getString("database", null)!!) }.getOrDefault(d.database),
+            btsearchMncs = prefs.getStringSet("btsearchMncs", null)?.mapNotNull(String::toIntOrNull)?.toSet() ?: d.btsearchMncs,
+            dbRefreshDays = prefs.getInt("dbRefreshDays", d.dbRefreshDays),
+            dbWifiOnly = prefs.getBoolean("dbWifiOnly", d.dbWifiOnly),
         )
     }
 
@@ -62,6 +77,10 @@ class SettingsStore(context: Context) {
             .putBoolean("notificationStation", s.notificationStation)
             .putBoolean("notificationOtherSim", s.notificationOtherSim)
             .putBoolean("showNeighbours", s.showNeighbours)
+            .putString("database", s.database.name)
+            .putStringSet("btsearchMncs", s.btsearchMncs.map(Int::toString).toSet())
+            .putInt("dbRefreshDays", s.dbRefreshDays)
+            .putBoolean("dbWifiOnly", s.dbWifiOnly)
             .apply()
     }
 
