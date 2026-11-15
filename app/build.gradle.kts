@@ -45,6 +45,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+    implementation(libs.hiddenapibypass)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)

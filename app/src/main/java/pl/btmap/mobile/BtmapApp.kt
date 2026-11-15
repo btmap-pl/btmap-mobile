@@ -12,12 +12,14 @@ import kotlinx.coroutines.withContext
 import pl.btmap.core.stations.StationSource
 import kotlinx.coroutines.flow.combine
 import pl.btmap.mobile.settings.SettingsStore
+import pl.btmap.mobile.tools.BandStore
 import pl.btmap.mobile.tools.ShizukuBridge
 import pl.btmap.mobile.work.DatabaseWorker
 
 class BtmapApp : Application() {
     val settings: SettingsStore by lazy { SettingsStore(this) }
     val shizuku: ShizukuBridge by lazy { ShizukuBridge(this) }
+    val bands: BandStore by lazy { BandStore(this, core, scope) }
     val core: BtmapCore by lazy {
         BtmapCore(this, settings.settings.value.apiBaseUrl).also(::applySettings)
     }
@@ -26,6 +28,8 @@ class BtmapApp : Application() {
 
     /** Keeps the core in sync with settings that affect it. */
     private fun applySettings(core: BtmapCore) {
+        // Start collecting the bands the modem reports.
+        scope.launch { bands }
         scope.launch {
             settings.settings.map { it.liveRefreshMs }.distinctUntilChanged().collect(core::setLiveRefreshMs)
         }
