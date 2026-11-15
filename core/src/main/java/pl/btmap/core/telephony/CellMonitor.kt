@@ -179,13 +179,20 @@ class CellMonitor(
         val simPlmn = Plmn.of(sub.mccString, sub.mncString)
 
         val bandwidths = inputs.service?.cellBandwidths?.filter { it > 0 }.orEmpty()
-        // ServiceState's first bandwidth is the PCell's; CellIdentity's value is often stale.
-        val parsed = inputs.cellInfo.mapNotNull(CellInfoParser::parse).map { cell ->
-            val bw = bandwidths.firstOrNull()
-            if (cell.role == CellRole.PRIMARY && bw != null) cell.copy(identity = cell.identity.copy(bandwidthKhz = bw)) else cell
-        }
         val plmn = registeredPlmn ?: simPlmn
-        parsed.filter(Cell::isServing).forEach { dictionary.learn(plmn, it) }
+        // ServiceState's first bandwidth is the PCell's. While it is empty (RRC transitions), use the
+        // bandwidth learned for this cell; CellIdentity's own value is often bogus.
+        val parsed = inputs.cellInfo.mapNotNull(CellInfoParser::parse).map { cell ->
+            if (cell.role != CellRole.PRIMARY) return@map cell
+            val id = cell.identity
+            val bw = bandwidths.firstOrNull()
+                ?: dictionary.lookup(id.plmn ?: plmn, id.rat, id.channel, id.physicalId)?.bandwidthKhz
+                ?: id.bandwidthKhz
+            cell.copy(identity = id.copy(bandwidthKhz = bw))
+        }
+        parsed.filter(Cell::isServing).forEach {
+            dictionary.learn(plmn, it, trustedBandwidth = it.role == CellRole.PRIMARY && bandwidths.isNotEmpty())
+        }
         val enriched = parsed.map { if (it.isServing) it else dictionary.enrich(plmn, it) }
         val cells = withNsaLeg(enriched, inputs.signal, inputs.display, registeredPlmn)
             .sortedWith(compareBy<Cell>({ it.role.ordinal }, { -(it.signal.mainDbm ?: -200) }))

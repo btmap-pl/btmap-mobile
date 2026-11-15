@@ -88,7 +88,7 @@ class BtmapCore(
     val monitor = CellMonitor(context, refreshIntervalMs, dictionary)
     val location = LocationTracker(context)
     val api = BtmapApi(apiBaseUrl)
-    val log = CellLog()
+    val log = CellLog(File(context.filesDir, "cell-log.json"))
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _state = MutableStateFlow(LiveState())
@@ -99,7 +99,22 @@ class BtmapCore(
     /** Last failed lookup per node, so an offline phone does not retry on every refresh. */
     private val failedAt = mutableMapOf<NodeKey, Long>()
 
+    init {
+        scope.launch(Dispatchers.IO) { log.loadFromDisk() }
+    }
+
     fun hasPermissions() = monitor.hasPermissions()
+
+    /** Empties the cell log, on disk too. */
+    fun clearLog() {
+        log.clear()
+        scope.launch(Dispatchers.IO) { runCatching { log.flush() } }
+    }
+
+    /** Looks up the BTMap station of a cell that is not being served right now (e.g. from the log). */
+    fun ensureStation(identity: CellIdentity) {
+        NodeKey.of(identity)?.let { lookup(listOf(it)) }
+    }
 
     @Synchronized
     fun start() {
@@ -120,8 +135,9 @@ class BtmapCore(
             },
             scope.launch(Dispatchers.IO) {
                 while (true) {
-                    delay(30_000)
+                    delay(15_000)
                     runCatching { dictionary.flush() }
+                    runCatching { log.flush() }
                 }
             },
         )
@@ -131,16 +147,20 @@ class BtmapCore(
     fun stop() {
         jobs.forEach { it.cancel() }
         jobs = emptyList()
-        scope.launch(Dispatchers.IO) { runCatching { dictionary.flush() } }
+        scope.launch(Dispatchers.IO) {
+            runCatching { dictionary.flush() }
+            runCatching { log.flush() }
+        }
         _state.update { it.copy(running = false) }
     }
 
     /** Looks up BTMap stations for serving cells that were not resolved yet. */
     private fun resolveStations(snap: NetworkSnapshot) {
-        val keys = snap.sims.flatMap { sim -> sim.cells.filter(Cell::isServing) }
-            .mapNotNull(NodeKey::of)
-            .distinct()
-            .filter { it !in _state.value.stations }
+        lookup(snap.sims.flatMap { sim -> sim.cells.filter(Cell::isServing) }.mapNotNull(NodeKey::of))
+    }
+
+    private fun lookup(candidates: List<NodeKey>) {
+        val keys = candidates.distinct().filter { it !in _state.value.stations }
         val now = System.currentTimeMillis()
         for (key in keys) {
             val claimed = synchronized(inFlight) {

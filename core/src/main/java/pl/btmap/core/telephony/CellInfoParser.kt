@@ -30,6 +30,12 @@ internal object CellInfoParser {
     private fun Int.orNullBelow(max: Int): Int? = orNull()?.takeIf { it in 0 until max }
     private fun Long.orNullBelow(max: Long): Long? = orNull()?.takeIf { it in 0 until max }
 
+    /**
+     * RSRP / SS-RSRP inside the 3GPP range (-140..-44 dBm). The top value -44 is what modems report
+     * while switching cells, never a real reading, so it is treated as missing.
+     */
+    fun Int.rsrpOrNull(): Int? = orNull()?.takeIf { it in -156 until -44 }
+
     fun parse(info: CellInfo): Cell? = when (info) {
         is CellInfoLte -> lte(info)
         is CellInfoNr -> nr(info)
@@ -68,7 +74,7 @@ internal object CellInfoParser {
             ),
             signal = CellSignal(
                 rssi = s.rssi.orNull(),
-                rsrp = s.rsrp.orNull(),
+                rsrp = s.rsrp.rsrpOrNull(),
                 rsrq = s.rsrq.orNull(),
                 snr = s.rssnr.orNull(),
                 cqi = s.cqi.orNull(),
@@ -110,10 +116,10 @@ internal object CellInfoParser {
     }
 
     fun nrSignal(s: CellSignalStrengthNr, taMicros: Int? = null) = CellSignal(
-        ssRsrp = s.ssRsrp.orNull(),
+        ssRsrp = s.ssRsrp.rsrpOrNull(),
         ssRsrq = s.ssRsrq.orNull(),
         ssSinr = s.ssSinr.orNull(),
-        csiRsrp = s.csiRsrp.orNull(),
+        csiRsrp = s.csiRsrp.rsrpOrNull(),
         csiRsrq = s.csiRsrq.orNull(),
         csiSinr = s.csiSinr.orNull(),
         timingAdvanceMicros = taMicros,

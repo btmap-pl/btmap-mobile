@@ -79,6 +79,6 @@ private fun Root(core: BtmapCore, mode: ThemeMode, onThemeChange: (ThemeMode) ->
     } else {
         val state by core.state.collectAsStateWithLifecycle()
         val log by core.log.entries.collectAsStateWithLifecycle()
-        AppShell(state, log, mode, onThemeChange, core.api::stationUrl)
+        AppShell(state, log, mode, onThemeChange, core.api::stationUrl, core::clearLog, core::ensureStation)
     }
 }

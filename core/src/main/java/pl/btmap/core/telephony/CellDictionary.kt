@@ -27,14 +27,20 @@ class CellDictionary(private val file: File? = null) {
         file?.let { runCatching { load(it) } }
     }
 
-    fun learn(plmn: Plmn?, cell: Cell) {
+    /**
+     * @param trustedBandwidth the cell's bandwidth came from ServiceState. Many modems (MIUI/MediaTek)
+     * report a bogus 1.4 MHz in CellIdentity, so an untrusted value never replaces a known one.
+     */
+    fun learn(plmn: Plmn?, cell: Cell, trustedBandwidth: Boolean = false) {
         val id = cell.identity
         if (id.learned || id.cid == null) return
         val p = (id.plmn ?: plmn)?.numeric ?: return
         val key = Key(p, id.rat, id.channel ?: return, id.physicalId ?: return)
         val previous = byPhysical[key]
         // Keep a known bandwidth when a later sample (e.g. SCell, idle) lacks it.
-        val merged = id.copy(bandwidthKhz = id.bandwidthKhz ?: previous?.bandwidthKhz, operatorAlpha = null)
+        val bandwidth = if (trustedBandwidth) id.bandwidthKhz ?: previous?.bandwidthKhz
+        else previous?.bandwidthKhz ?: id.bandwidthKhz
+        val merged = id.copy(bandwidthKhz = bandwidth, operatorAlpha = null)
         if (merged != previous) {
             byPhysical[key] = merged
             dirty = true

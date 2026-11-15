@@ -41,7 +41,17 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import pl.btmap.core.model.CellIdentity
+import pl.btmap.core.model.CellSignal
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -157,6 +167,10 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
         }
 
         val carriers = state.carriersOf(sim)
+        // The selected carrier follows its band (channel), so it stays selected when PCell and SCell swap.
+        var selectedKey by rememberSaveable(sim.subscriptionId) { mutableStateOf<String?>(null) }
+        val selectedIndex = carriers.indexOfFirst { carrierKey(it) == selectedKey }.takeIf { it >= 0 } ?: 0
+
         Spacer(Modifier.height(18.dp))
         ModeRow(sim)
         if (carriers.isNotEmpty()) {
@@ -166,25 +180,51 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
                 horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 carriers.forEachIndexed { i, c ->
-                    key(c.channel ?: -i, c.isPrimary) { CarrierPill(c, brand, Modifier.enterAnimation(i)) }
+                    key(carrierKey(c)) {
+                        CarrierPill(
+                            carrier = c,
+                            brand = brand,
+                            selected = i == selectedIndex,
+                            onClick = if (carriers.size > 1) ({ selectedKey = carrierKey(c) }) else null,
+                            modifier = Modifier.enterAnimation(i),
+                        )
+                    }
                 }
             }
         }
 
-        Spacer(Modifier.height(20.dp))
-        SignalHero(primary)
-        Spacer(Modifier.height(12.dp))
-        MetricsRow(primary)
-
-        Spacer(Modifier.height(18.dp))
-        IdentityGrid(primary)
-
-        StationBlock(primary, state, stationUrl)
+        // Signal, identity and station of the selected band; slides when switching bands.
+        AnimatedContent(
+            targetState = selectedIndex,
+            transitionSpec = {
+                val dir = if (targetState > initialState) 1 else -1
+                (slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { dir * it / 4 } + fadeIn(tween(250))) togetherWith
+                    (slideOutHorizontally(tween(250, easing = FastOutSlowInEasing)) { -dir * it / 4 } + fadeOut(tween(150))) using
+                    SizeTransform(clip = false)
+            },
+            label = "carrier",
+        ) { index ->
+            val carrier = carriers.getOrNull(index)
+            val cell = carrier?.let { carrierCell(it, primary) } ?: primary
+            Column {
+                Spacer(Modifier.height(20.dp))
+                if (carrier != null && !carrier.isPrimary && cell.signal.mainDbm == null) {
+                    NoMeasurement(carrier)
+                } else {
+                    SignalHero(cell)
+                    Spacer(Modifier.height(12.dp))
+                    MetricsRow(cell)
+                }
+                Spacer(Modifier.height(18.dp))
+                IdentityGrid(cell, carrier?.bandwidthLabel)
+                StationBlock(cell, state, stationUrl)
+            }
+        }
 
         val extra = carriers.filter { !it.isPrimary }
         if (carriers.size > 1) {
             Spacer(Modifier.height(18.dp))
-            AggregationSection(carriers, primary.rat, brand)
+            AggregationSection(carriers, primary.rat, brand, selectedIndex) { selectedKey = carrierKey(it) }
         }
 
         val shown = extra.mapNotNull { it.cell }.toSet()
@@ -266,7 +306,13 @@ private fun ModeRow(sim: SimState) {
 }
 
 @Composable
-private fun CarrierPill(carrier: Carrier, brand: Color, modifier: Modifier = Modifier) {
+private fun CarrierPill(
+    carrier: Carrier,
+    brand: Color,
+    selected: Boolean,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
     val band = carrier.band
     val label = buildString {
         append(if (carrier.rat == Rat.NR) "5G " else "")
@@ -274,12 +320,20 @@ private fun CarrierPill(carrier: Carrier, brand: Color, modifier: Modifier = Mod
         carrier.bandwidthLabel?.let { append(" · $it MHz") }
     }
     val style = when {
-        carrier.isPrimary -> PillStyle.FILLED
+        selected -> PillStyle.FILLED
         carrier.source == CarrierSource.UNKNOWN -> PillStyle.DASHED
         else -> PillStyle.OUTLINED
     }
-    val color = if (carrier.isPrimary) brand else if (carrier.source == CarrierSource.UNKNOWN) Btmap.colors.muted else MaterialTheme.colorScheme.onSurface
-    Pill(label, color, modifier = modifier, style = style) {
+    val target = if (selected) brand else if (carrier.source == CarrierSource.UNKNOWN) Btmap.colors.muted else MaterialTheme.colorScheme.onSurface
+    val color by animateColorAsState(target, tween(250), label = "pillColor")
+    val interaction = remember { MutableInteractionSource() }
+    val clickable = if (onClick != null) {
+        Modifier.pressScale(interaction).clip(RoundedCornerShape(10.dp)).clickable(interaction, LocalIndication.current, onClick = onClick)
+    } else Modifier
+    Pill(label, color, modifier = modifier.then(clickable), style = style) {
+        if (carrier.isPrimary) {
+            Text(" P", style = MaterialTheme.typography.labelSmall, color = color.copy(alpha = 0.7f))
+        }
         band?.let {
             Text(" ${it.shortName}", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
         }
@@ -347,10 +401,37 @@ private fun MetricsRow(cell: Cell) {
     }
 }
 
+/** Shown for an SCell the modem does not measure separately (most MIUI / MediaTek builds). */
+@Composable
+private fun NoMeasurement(carrier: Carrier) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Btmap.colors.cardRaised)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MiniBars(0f, Btmap.colors.faint)
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text("Brak osobnego pomiaru", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                when (carrier.source) {
+                    CarrierSource.LEARNED -> "Modem raportuje sygnał tylko dla PCell. Dane komórki pochodzą z wcześniejszego połączenia."
+                    CarrierSource.STATION -> "Pasmo ustalone na podstawie stacji w BTMap."
+                    else -> "Modem raportuje sygnał tylko dla PCell."
+                },
+                style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
+            )
+        }
+    }
+}
+
 // ---- Identity ------------------------------------------------------------------------------
 
 @Composable
-private fun IdentityGrid(cell: Cell) {
+private fun IdentityGrid(cell: Cell, bandwidth: String? = null) {
     val id = cell.identity
     val rows = listOfNotNull(
         (if (id.rat == Rat.NR) "gNB:CID" else if (id.rat == Rat.LTE) "eNB:CID" else "RNC:CID") to id.nodeLabel,
@@ -359,6 +440,8 @@ private fun IdentityGrid(cell: Cell) {
         physicalLabel(id.rat) to id.physicalId?.toString(),
         channelLabel(id.rat) to id.channel?.toString(),
         "DL" to id.band?.downlinkMhz?.let { "%.1f MHz".format(it) },
+        "Pasmo" to id.band?.let { "${it.shortName} · ${it.label}" },
+        "BW" to (bandwidth ?: id.bandwidthKhz?.let { if (it % 1000 == 0) "${it / 1000}" else "%.1f".format(it / 1000.0) })?.let { "$it MHz" },
     ).filter { it.second != null }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         rows.chunked(2).forEach { pair ->
@@ -431,7 +514,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun AggregationSection(carriers: List<Carrier>, primaryRat: Rat, brand: Color) {
+private fun AggregationSection(carriers: List<Carrier>, primaryRat: Rat, brand: Color, selectedIndex: Int, onSelect: (Carrier) -> Unit) {
     val total = carriers.sumOf { it.bandwidthKhz ?: 0 }
     val title = buildString {
         append(if (carriers.any { it.rat != primaryRat }) "Agregacja i 5G" else "Agregacja")
@@ -451,7 +534,7 @@ private fun AggregationSection(carriers: List<Carrier>, primaryRat: Rat, brand: 
     BandwidthBar(carriers, brand)
     Spacer(Modifier.height(10.dp))
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        carriers.forEachIndexed { index, carrier -> CarrierTile(carrier, index, primaryRat, brand) }
+        carriers.forEachIndexed { index, carrier -> CarrierTile(carrier, index, primaryRat, brand, index == selectedIndex) { onSelect(carrier) } }
     }
 }
 
@@ -484,18 +567,23 @@ private fun carrierColor(carrier: Carrier, index: Int, brand: Color): Color = wh
 }
 
 @Composable
-private fun CarrierTile(carrier: Carrier, index: Int, primaryRat: Rat, brand: Color) {
+private fun CarrierTile(carrier: Carrier, index: Int, primaryRat: Rat, brand: Color, selected: Boolean, onClick: () -> Unit) {
     val id = carrier.identity
     val cell = carrier.cell
     val rat = carrier.rat
     val dbm = cell?.signal?.let { if (rat == Rat.NR) it.ssRsrp else it.rsrp }
     val q = powerQuality(dbm, rat)
     val accent = carrierColor(carrier, index, brand)
+    val interaction = remember { MutableInteractionSource() }
+    val border by animateColorAsState(if (selected) accent.copy(alpha = 0.7f) else Color.Transparent, tween(250), label = "tileBorder")
     Row(
         Modifier
+            .pressScale(interaction)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Btmap.colors.cardRaised)
+            .border(1.dp, border, RoundedCornerShape(16.dp))
+            .clickable(interaction, LocalIndication.current, onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -591,6 +679,22 @@ private fun ListRow(
 }
 
 // ---- Helpers -------------------------------------------------------------------------------
+
+private fun carrierKey(c: Carrier): String = "${c.rat}:${c.channel ?: (if (c.isPrimary) "p" else "?${c.bandwidthKhz}")}"
+
+/**
+ * The cell to show for a carrier: the measured one, or one built from its learned identity
+ * (no signal) when the modem does not report the SCell separately.
+ */
+private fun carrierCell(c: Carrier, primary: Cell): Cell {
+    if (c.isPrimary) return primary
+    c.cell?.let { return it }
+    val id = (c.identity ?: CellIdentity(
+        rat = c.rat, plmn = primary.identity.plmn, cid = null, nodeId = null, localCellId = null,
+        areaCode = null, physicalId = c.physicalId, channel = c.channel, band = c.band,
+    )).copy(band = c.band ?: c.identity?.band, bandwidthKhz = c.bandwidthKhz)
+    return Cell(identity = id, signal = CellSignal(), role = CellRole.SECONDARY, taDistanceMeters = null, timestampNanos = 0)
+}
 
 fun formatDistance(m: Int): String = if (m >= 1000) "%.1f km".format(m / 1000.0) else "$m m"
 

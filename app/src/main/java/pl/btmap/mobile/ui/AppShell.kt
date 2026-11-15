@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import pl.btmap.core.LiveState
 import pl.btmap.core.LogEntry
 import pl.btmap.core.api.Station
+import pl.btmap.core.model.CellIdentity
 import pl.btmap.mobile.ui.theme.Btmap
 import pl.btmap.mobile.ui.theme.ThemeMode
 
@@ -72,6 +73,8 @@ fun AppShell(
     themeMode: ThemeMode,
     onThemeChange: (ThemeMode) -> Unit,
     stationUrl: (Station) -> String,
+    onClearLog: () -> Unit,
+    onNeedStation: (CellIdentity) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.LIVE) }
     var detailKey by rememberSaveable { mutableStateOf<String?>(null) }
@@ -118,7 +121,7 @@ fun AppShell(
                 when (target) {
                     is Screen.TabScreen -> when (target.tab) {
                         Tab.LIVE -> LiveScreen(state, stationUrl, tabPadding)
-                        Tab.LOG -> LogScreen(log, state, tabPadding) { detailKey = it.key }
+                        Tab.LOG -> LogScreen(log, state, tabPadding, { detailKey = it.key }, onClearLog, onNeedStation)
                     }
                     is Screen.Detail -> {
                         // Keep showing the last known entry even if the log was cleared meanwhile.

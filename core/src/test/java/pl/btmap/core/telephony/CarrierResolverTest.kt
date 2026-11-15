@@ -90,4 +90,15 @@ class CarrierResolverTest {
         assertEquals("15087:22", n.identity.nodeLabel)
         assertEquals(true, n.identity.learned)
     }
+
+    @Test
+    fun `bogus identity bandwidth never replaces a trusted one`() {
+        val dict = CellDictionary()
+        val eci = 15087L * 256 + 12
+        dict.learn(plus, lte(3526, 3, eci, CellRole.PRIMARY, bw = 5_000), trustedBandwidth = true)
+        dict.learn(plus, lte(3526, 3, eci, CellRole.PRIMARY, bw = 1_400))
+        assertEquals(5_000, dict.lookup(plus, Rat.LTE, 3526, 3)!!.bandwidthKhz)
+        dict.learn(plus, lte(3526, 3, eci, CellRole.PRIMARY, bw = 10_000), trustedBandwidth = true)
+        assertEquals(10_000, dict.lookup(plus, Rat.LTE, 3526, 3)!!.bandwidthKhz)
+    }
 }
