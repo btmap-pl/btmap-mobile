@@ -80,6 +80,11 @@ class CellDictionary(private val file: File? = null) {
 
     val size: Int get() = byPhysical.size
 
+    fun clear() {
+        byPhysical.clear()
+        dirty = true
+    }
+
     /** Writes learned cells to [file] if anything changed. Call from a background thread. */
     @Synchronized
     fun flush() {

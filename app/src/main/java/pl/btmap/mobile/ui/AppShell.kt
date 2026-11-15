@@ -55,9 +55,10 @@ import pl.btmap.core.LogEntry
 import pl.btmap.core.api.Station
 import pl.btmap.core.model.CellIdentity
 import pl.btmap.mobile.ui.theme.Btmap
-import pl.btmap.mobile.ui.theme.ThemeMode
+import pl.btmap.core.BtmapCore
+import pl.btmap.mobile.settings.Settings
 
-private enum class Tab(val title: String) { LIVE("Live"), LOG("Log") }
+private enum class Tab(val title: String) { LIVE("Live"), LOG("Log"), SETTINGS("Ustawienia") }
 
 /** What fills the content area: a tab, or the details of one log entry. */
 private sealed interface Screen {
@@ -70,8 +71,9 @@ private sealed interface Screen {
 fun AppShell(
     state: LiveState,
     log: List<LogEntry>,
-    themeMode: ThemeMode,
-    onThemeChange: (ThemeMode) -> Unit,
+    settings: Settings,
+    onSettingsChange: ((Settings) -> Settings) -> Unit,
+    core: BtmapCore,
     stationUrl: (Station) -> String,
     onClearLog: () -> Unit,
     onNeedStation: (CellIdentity) -> Unit,
@@ -90,8 +92,6 @@ fun AppShell(
             TopBar(
                 title = if (detailKey != null) "Szczegóły" else tab.title,
                 running = state.running,
-                mode = themeMode,
-                onThemeChange = onThemeChange,
             )
             AnimatedContent(
                 targetState = screen,
@@ -120,7 +120,8 @@ fun AppShell(
             ) { target ->
                 when (target) {
                     is Screen.TabScreen -> when (target.tab) {
-                        Tab.LIVE -> LiveScreen(state, stationUrl, tabPadding)
+                        Tab.LIVE -> LiveScreen(state, stationUrl, tabPadding, settings.showNeighbours)
+                        Tab.SETTINGS -> SettingsScreen(settings, onSettingsChange, core, log.size, tabPadding)
                         Tab.LOG -> LogScreen(log, state, tabPadding, { detailKey = it.key }, onClearLog, onNeedStation)
                     }
                     is Screen.Detail -> {
@@ -145,12 +146,7 @@ fun AppShell(
 }
 
 @Composable
-private fun TopBar(
-    title: String,
-    running: Boolean,
-    mode: ThemeMode,
-    onThemeChange: (ThemeMode) -> Unit,
-) {
+private fun TopBar(title: String, running: Boolean) {
     Row(
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -166,34 +162,6 @@ private fun TopBar(
         ) { Text(it, style = MaterialTheme.typography.headlineMedium) }
         Spacer(Modifier.width(4.dp))
         PulseDot(if (running) Btmap.colors.good else Btmap.colors.faint, active = running)
-        Spacer(Modifier.weight(1f))
-        val next = when (mode) {
-            ThemeMode.SYSTEM -> ThemeMode.LIGHT
-            ThemeMode.LIGHT -> ThemeMode.DARK
-            ThemeMode.DARK -> ThemeMode.SYSTEM
-        }
-        val interaction = remember { MutableInteractionSource() }
-        Row(
-            Modifier
-                .pressScale(interaction)
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(interaction, LocalIndication.current) { onThemeChange(next) }
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ThemeIcon(MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.width(6.dp))
-            AnimatedContent(
-                targetState = mode,
-                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
-                label = "themeLabel",
-            ) { m ->
-                Text(
-                    when (m) { ThemeMode.SYSTEM -> "Auto"; ThemeMode.LIGHT -> "Jasny"; ThemeMode.DARK -> "Ciemny" },
-                    style = MaterialTheme.typography.labelMedium, color = Btmap.colors.muted,
-                )
-            }
-        }
     }
 }
 
@@ -220,12 +188,13 @@ private fun BottomBar(current: Tab, onSelect: (Tab) -> Unit, modifier: Modifier 
                     .clip(RoundedCornerShape(18.dp))
                     .background(bg)
                     .clickable(interaction, LocalIndication.current) { onSelect(tab) }
-                    .padding(horizontal = 26.dp, vertical = 8.dp),
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when (tab) {
                     Tab.LIVE -> LiveIcon(fg)
                     Tab.LOG -> LogIcon(fg)
+                    Tab.SETTINGS -> SettingsIcon(fg)
                 }
                 Text(tab.title, style = MaterialTheme.typography.labelMedium, color = fg)
             }

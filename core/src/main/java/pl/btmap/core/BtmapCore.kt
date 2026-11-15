@@ -136,7 +136,32 @@ class BtmapCore(
     fun setMode(mode: PowerMode) {
         if (_mode.value == mode) return
         _mode.value = mode
-        monitor.setRefreshInterval(mode.cellRefreshMs)
+        monitor.setRefreshInterval(refreshFor(mode))
+    }
+
+    /** Cell refresh while the app is on screen; user setting (1–5 s). */
+    @Volatile private var liveRefreshMs = PowerMode.LIVE.cellRefreshMs
+
+    fun setLiveRefreshMs(ms: Long) {
+        liveRefreshMs = ms.coerceIn(1_000, 10_000)
+        if (_mode.value == PowerMode.LIVE) monitor.setRefreshInterval(liveRefreshMs)
+    }
+
+    private fun refreshFor(mode: PowerMode) = if (mode == PowerMode.LIVE) liveRefreshMs else mode.cellRefreshMs
+
+    /** Switches the BTMap server; stations are looked up again from the new one. */
+    fun setApiBaseUrl(url: String) {
+        scope.launch {
+            api.setBaseUrl(url)
+            synchronized(inFlight) { failedAt.clear() }
+            _state.update { it.copy(stations = emptyMap(), apiError = null) }
+        }
+    }
+
+    /** Forgets learned cells (used to identify neighbours and CA secondaries). */
+    fun clearDictionary() {
+        dictionary.clear()
+        scope.launch(Dispatchers.IO) { runCatching { dictionary.flush() } }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -144,7 +169,7 @@ class BtmapCore(
     fun start() {
         if (jobs.isNotEmpty()) return
         _state.update { it.copy(running = true) }
-        monitor.setRefreshInterval(_mode.value.cellRefreshMs)
+        monitor.setRefreshInterval(refreshFor(_mode.value))
         jobs = listOf(
             scope.launch {
                 monitor.snapshots().collect { snap ->

@@ -60,7 +60,19 @@ class BtmapApi(
     private val missTtlMs: Long = 10 * 60_000,
     private val timeoutMs: Int = 8_000,
 ) {
-    private val base = baseUrl.trimEnd('/')
+    @Volatile private var base = baseUrl.trimEnd('/')
+
+    val baseUrl: String get() = base
+
+    /** Points the client at another server; cached lookups belong to the old one and are dropped. */
+    suspend fun setBaseUrl(url: String) {
+        val clean = url.trim().trimEnd('/')
+        if (clean == base) return
+        mutex.withLock {
+            base = clean
+            cache.clear()
+        }
+    }
     private val mutex = Mutex()
     private val cache = object : LinkedHashMap<NodeKey, CacheEntry>(256, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<NodeKey, CacheEntry>?) = size > 2_000

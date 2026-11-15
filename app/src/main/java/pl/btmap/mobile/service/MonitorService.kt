@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import pl.btmap.core.BtmapCore
 import pl.btmap.core.PowerMode
@@ -89,8 +89,9 @@ class MonitorService : Service() {
         updateMode()
         if (collecting.compareAndSet(false, true)) {
             scope.launch {
-                core.samples
-                    .map(NotificationText::from)
+                combine(core.samples, (application as BtmapApp).settings.settings) { state, settings ->
+                    NotificationText.from(state, settings)
+                }
                     .distinctUntilChanged()
                     .collect { content ->
                         if (content != lastContent) {

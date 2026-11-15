@@ -29,18 +29,17 @@ import pl.btmap.mobile.ui.AppShell
 import pl.btmap.mobile.ui.PermissionScreen
 import pl.btmap.mobile.ui.theme.BtmapTheme
 import pl.btmap.mobile.ui.theme.ThemeMode
+import pl.btmap.mobile.settings.Settings
 
 class MainActivity : ComponentActivity() {
     private val core: BtmapCore get() = (application as BtmapApp).core
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val prefs = getSharedPreferences("ui", Context.MODE_PRIVATE)
+        val store = (application as BtmapApp).settings
         setContent {
-            var mode by remember {
-                mutableStateOf(runCatching { ThemeMode.valueOf(prefs.getString("theme", null)!!) }.getOrDefault(ThemeMode.SYSTEM))
-            }
-            val dark = when (mode) {
+            val settings by store.settings.collectAsStateWithLifecycle()
+            val dark = when (settings.theme) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
@@ -50,11 +49,8 @@ class MainActivity : ComponentActivity() {
                 else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
                 enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
             }
-            BtmapTheme(mode) {
-                Root(core, mode) {
-                    mode = it
-                    prefs.edit().putString("theme", it.name).apply()
-                }
+            BtmapTheme(settings.theme) {
+                Root(core, settings, store::update)
             }
         }
     }
@@ -77,7 +73,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun Root(core: BtmapCore, mode: ThemeMode, onThemeChange: (ThemeMode) -> Unit) {
+private fun Root(core: BtmapCore, settings: Settings, onSettingsChange: ((Settings) -> Settings) -> Unit) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(core.hasPermissions()) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -100,6 +96,6 @@ private fun Root(core: BtmapCore, mode: ThemeMode, onThemeChange: (ThemeMode) ->
     } else {
         val state by core.state.collectAsStateWithLifecycle()
         val log by core.log.entries.collectAsStateWithLifecycle()
-        AppShell(state, log, mode, onThemeChange, core.api::stationUrl, core::clearLog, core::ensureStation)
+        AppShell(state, log, settings, onSettingsChange, core, core.api::stationUrl, core::clearLog, core::ensureStation)
     }
 }

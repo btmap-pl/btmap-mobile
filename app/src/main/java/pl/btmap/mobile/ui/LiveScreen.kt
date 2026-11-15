@@ -81,7 +81,7 @@ import pl.btmap.mobile.ui.theme.Btmap
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding: PaddingValues) {
+fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding: PaddingValues, showNeighbours: Boolean = true) {
     val sims = state.snapshot.sims
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -98,7 +98,7 @@ fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding
             }
         }
         itemsIndexed(sims, key = { _, sim -> sim.subscriptionId }) { index, sim ->
-            SimCard(sim, state, stationUrl, Modifier.animateItemPlacement().enterAnimation(index + 1))
+            SimCard(sim, state, stationUrl, showNeighbours, Modifier.animateItemPlacement().enterAnimation(index + 1))
         }
     }
 }
@@ -129,7 +129,7 @@ private fun LocationStrip(state: LiveState) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> String, modifier: Modifier) {
+private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> String, showNeighbours: Boolean, modifier: Modifier) {
     val colors = Btmap.colors
     val brand = sim.operator?.let { colors.brand(Color(it.color)) } ?: colors.accent
     val glow = brand.copy(alpha = if (colors.isDark) 0.20f else 0.12f)
@@ -229,7 +229,7 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
 
         val shown = extra.mapNotNull { it.cell }.toSet()
         val neighbours = sim.neighbours.filter { it !in shown }
-        if (neighbours.isNotEmpty()) {
+        if (showNeighbours && neighbours.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
             SectionTitle("Sąsiednie · ${neighbours.size}")
             neighbours.take(10).forEach { NeighbourRow(it, state) }

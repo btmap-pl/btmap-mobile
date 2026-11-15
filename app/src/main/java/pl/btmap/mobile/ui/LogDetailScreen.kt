@@ -272,7 +272,7 @@ private fun KeyValues(rows: List<Pair<String, String?>>) {
 }
 
 @Composable
-private fun BackChip(onBack: () -> Unit) {
+fun BackChip(onBack: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val c = MaterialTheme.colorScheme.onSurface
     Canvas(

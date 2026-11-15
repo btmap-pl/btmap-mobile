@@ -145,6 +145,35 @@ class CellLog(
         bandwidthKhz = bandwidthKhz ?: old.bandwidthKhz,
     )
 
+    /** The log as CSV (one row per cell), for export to a spreadsheet. */
+    fun toCsv(): String = buildString {
+        appendLine("first_seen,last_seen,sim,plmn,rat,band,node,cid,ci,tac,pci,channel,bandwidth_khz,best_dbm,samples,best_lat,best_lng")
+        val time = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT)
+        for (e in _entries.value) {
+            val id = e.identity
+            listOf(
+                time.format(java.util.Date(e.firstSeenMillis)),
+                time.format(java.util.Date(e.lastSeenMillis)),
+                e.slotIndex + 1,
+                e.plmn?.numeric,
+                id.rat.label,
+                id.band?.label,
+                id.nodeId,
+                id.localCellId,
+                id.cid,
+                id.areaCode,
+                id.physicalId,
+                id.channel,
+                id.bandwidthKhz,
+                e.bestDbm,
+                e.samples,
+                e.bestFix?.lat?.let { "%.6f".format(java.util.Locale.ROOT, it) },
+                e.bestFix?.lng?.let { "%.6f".format(java.util.Locale.ROOT, it) },
+            ).joinTo(this, ",") { it?.toString().orEmpty() }
+            appendLine()
+        }
+    }
+
     fun entry(key: String): LogEntry? = _entries.value.firstOrNull { it.key == key }
 
     fun clear() {

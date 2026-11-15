@@ -356,3 +356,31 @@ fun Modifier.pressScale(interaction: MutableInteractionSource): Modifier {
     val s by animateFloatAsState(if (pressed) 0.97f else 1f, spring(stiffness = Spring.StiffnessMediumLow), label = "press")
     return this.graphicsLayer { scaleX = s; scaleY = s }
 }
+
+/** Gear: settings tab. */
+@Composable
+fun SettingsIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(22.dp)) {
+        val c = center
+        val outer = size.minDimension * 0.46f
+        val inner = size.minDimension * 0.34f
+        val teeth = 8
+        val path = androidx.compose.ui.graphics.Path()
+        for (i in 0 until teeth * 2) {
+            // Alternate tooth top / gap, each spanning half a tooth angle, for a crisp outline.
+            val r = if (i % 2 == 0) outer else inner
+            val a0 = Math.toRadians((i * 360.0 / (teeth * 2)) - 90 - 360.0 / (teeth * 4))
+            val a1 = Math.toRadians((i * 360.0 / (teeth * 2)) - 90 + 360.0 / (teeth * 4))
+            val p0 = Offset(c.x + r * kotlin.math.cos(a0).toFloat(), c.y + r * kotlin.math.sin(a0).toFloat())
+            val p1 = Offset(c.x + r * kotlin.math.cos(a1).toFloat(), c.y + r * kotlin.math.sin(a1).toFloat())
+            if (i == 0) path.moveTo(p0.x, p0.y) else path.lineTo(p0.x, p0.y)
+            path.lineTo(p1.x, p1.y)
+        }
+        path.close()
+        drawPath(
+            path, color,
+            style = Stroke(1.7.dp.toPx(), join = androidx.compose.ui.graphics.StrokeJoin.Round),
+        )
+        drawCircle(color, radius = size.minDimension * 0.13f, center = c, style = Stroke(1.7.dp.toPx()))
+    }
+}
