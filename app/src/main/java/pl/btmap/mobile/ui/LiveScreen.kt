@@ -52,6 +52,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import pl.btmap.core.model.CellIdentity
 import pl.btmap.core.model.CellSignal
+import pl.btmap.core.model.Plmn
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -224,7 +225,7 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
         val extra = carriers.filter { !it.isPrimary }
         if (carriers.size > 1) {
             Spacer(Modifier.height(18.dp))
-            AggregationSection(carriers, primary.rat, brand, selectedIndex) { selectedKey = carrierKey(it) }
+            AggregationSection(carriers, primary.rat, brand, selectedIndex, sim.carriersFromModem) { selectedKey = carrierKey(it) }
         }
 
         val shown = extra.mapNotNull { it.cell }.toSet()
@@ -232,7 +233,7 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
         if (showNeighbours && neighbours.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
             SectionTitle("Sąsiednie · ${neighbours.size}")
-            neighbours.take(10).forEach { NeighbourRow(it, state) }
+            neighbours.take(10).forEach { NeighbourRow(it, state, sim.registeredPlmn ?: sim.simPlmn) }
         }
     }
 }
@@ -517,7 +518,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun AggregationSection(carriers: List<Carrier>, primaryRat: Rat, brand: Color, selectedIndex: Int, onSelect: (Carrier) -> Unit) {
+private fun AggregationSection(carriers: List<Carrier>, primaryRat: Rat, brand: Color, selectedIndex: Int, fromModem: Boolean, onSelect: (Carrier) -> Unit) {
     val total = carriers.sumOf { it.bandwidthKhz ?: 0 }
     val title = buildString {
         append(if (carriers.any { it.rat != primaryRat }) "Agregacja i 5G" else "Agregacja")
@@ -526,6 +527,13 @@ private fun AggregationSection(carriers: List<Carrier>, primaryRat: Rat, brand: 
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         SectionTitle(title)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            if (fromModem) "Z MODEMU" else "SZACUNEK",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (fromModem) Btmap.colors.good else Btmap.colors.faint,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
         Spacer(Modifier.weight(1f))
         if (total > 0) {
             Text(
@@ -633,14 +641,17 @@ private fun CarrierTile(carrier: Carrier, index: Int, primaryRat: Rat, brand: Co
 }
 
 @Composable
-private fun NeighbourRow(cell: Cell, state: LiveState) {
+private fun NeighbourRow(cell: Cell, state: LiveState, simPlmn: Plmn?) {
     val id = cell.identity
     val dbm = cell.signal.mainDbm
+    // Neighbours come without a cell id; the station database names them by channel + PCI.
+    val match = state.neighbourOf(cell, simPlmn)
+    val nodeLabel = id.nodeLabel ?: match?.nodeId?.let { node -> match.localCellId?.let { "$node:$it" } ?: node.toString() }
     ListRow(
         badge = (if (id.rat == Rat.NR) "5G " else if (id.rat != Rat.LTE) id.rat.generation + " " else "") + (id.band?.label ?: "?"),
         badgeStyle = PillStyle.OUTLINED,
-        title = listOfNotNull(id.physicalId?.let { "PCI $it" }, id.nodeLabel).joinToString("  "),
-        subtitle = state.stationOf(cell)?.address,
+        title = listOfNotNull(id.physicalId?.let { "PCI $it" }, nodeLabel).joinToString("  "),
+        subtitle = state.stationOf(cell)?.address ?: match?.station?.address,
         channel = id.channel,
         dbm = dbm,
         quality = powerQuality(dbm, id.rat),

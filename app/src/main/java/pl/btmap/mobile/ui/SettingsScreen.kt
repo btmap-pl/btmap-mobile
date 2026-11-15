@@ -159,7 +159,11 @@ fun SettingsScreen(
                     when (current) {
                         SettingsPage.DATABASE -> Unit
                         SettingsPage.APPEARANCE -> AppearancePage(settings, onChange)
-                        SettingsPage.MEASUREMENTS -> MeasurementsPage(settings, onChange)
+                        SettingsPage.MEASUREMENTS -> {
+                            ModemAccess(core)
+                            Spacer(Modifier.height(18.dp))
+                            MeasurementsPage(settings, onChange)
+                        }
                         SettingsPage.NOTIFICATION -> NotificationPage(settings, onChange)
                         SettingsPage.DATA -> DataSettings(core, logSize)
                         SettingsPage.ABOUT -> About()
@@ -647,6 +651,69 @@ private fun AppearancePage(settings: Settings, onChange: ((Settings) -> Settings
     Spacer(Modifier.height(14.dp))
     ToggleRow("Sąsiednie komórki", "Lista mierzonych komórek pod kartą operatora", settings.showNeighbours) { on ->
         onChange { it.copy(showNeighbours = on) }
+    }
+}
+
+/** Status of modem carrier access (DUMP) with the one-time adb command to enable it. */
+@Composable
+private fun ModemAccess(core: BtmapCore) {
+    val context = LocalContext.current
+    var available by remember { mutableStateOf(core.physicalChannels.isAvailable) }
+    LaunchedEffect(Unit) {
+        while (!available) {
+            kotlinx.coroutines.delay(2_000)
+            available = core.physicalChannels.isAvailable
+        }
+    }
+    val command = "adb shell pm grant ${context.packageName} android.permission.DUMP"
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        PulseDot(if (available) Btmap.colors.good else Btmap.colors.poor, active = !available)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            if (available) "Pasma odczytywane z modemu" else "Pasma z modemu: wyłączone",
+            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+        )
+    }
+    Spacer(Modifier.height(6.dp))
+    if (available) {
+        Hint("Agregacja, szerokości i noga 5G pochodzą bezpośrednio z konfiguracji nośnych w modemie.")
+        var last by remember { mutableStateOf(core.physicalChannels.lastRead) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                last = core.physicalChannels.lastRead
+                kotlinx.coroutines.delay(2_000)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            last?.let { m ->
+                "Ostatni odczyt: " + m.entries.sortedBy { it.key }.joinToString(" · ") { (slot, list) ->
+                    "SIM ${slot + 1}: " + if (list.isEmpty()) "brak transmisji" else list.joinToString(" + ") { pc ->
+                        (if (pc.rat == pl.btmap.core.model.Rat.NR) "n" else "B") + (pc.band ?: "?") + " " + ((pc.bandwidthKhz ?: 0) / 1000) + " MHz"
+                    }
+                }
+            } ?: "Ostatni odczyt: brak danych",
+            style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted,
+        )
+    } else {
+        Hint(
+            "Android pokazuje dokładne nośne (agregacja, 5G NSA) tylko aplikacjom z uprawnieniem DUMP. " +
+                "Nadaj je raz z komputera — bez roota, działa do odinstalowania aplikacji:",
+        )
+        Spacer(Modifier.height(8.dp))
+        val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+        Text(
+            command,
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Btmap.colors.cardRaised)
+                .clickable { clipboard.setText(androidx.compose.ui.text.AnnotatedString(command)) }
+                .padding(12.dp),
+            style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+        )
+        Spacer(Modifier.height(4.dp))
+        Hint("Stuknij, aby skopiować. Bez tego pasma w agregacji są szacowane.")
     }
 }
 

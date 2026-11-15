@@ -15,6 +15,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import pl.btmap.core.api.NodeKey
 import pl.btmap.core.api.Station
+import pl.btmap.core.model.Plmn
 import pl.btmap.core.model.Rat
 import pl.btmap.core.radio.Bands
 import pl.btmap.core.radio.Operators
@@ -74,12 +75,29 @@ class StationRepository(context: Context) {
 
     fun info(source: StationSource): SourceInfo? = runCatching { db.info(source) }.getOrNull()
 
+    /** Identity and station of a neighbour cell found by channel + PCI. */
+    data class NeighbourMatch(val station: Station, val nodeId: Long?, val localCellId: Long?, val areaCode: Int?)
+
+    /** Neighbour cell (reported without a cell id) on [channel]/[pci], nearest to the phone. Off the main thread. */
+    fun findNeighbour(plmn: Plmn, rat: Rat, channel: Int, pci: Int, lat: Double, lng: Double): NeighbourMatch? {
+        val source = _source.value
+        val m = runCatching {
+            db.findByPhysical(source, plmn.mcc.toInt(), plmn.mnc.toInt(), rat, channel, pci, lat, lng)
+        }.getOrNull() ?: return null
+        val key = NodeKey(plmn, rat, m.node ?: -1)
+        return NeighbourMatch(toStation(source, key, m.site), m.node, m.cid, m.area)
+    }
+
     /** Station of a node in the selected database, or null. Call off the main thread. */
     fun find(key: NodeKey): Station? {
         val source = _source.value
         val site = runCatching {
             db.findNode(source, key.plmn.mcc.toInt(), key.plmn.mnc.toInt(), key.rat, key.nodeId)
         }.getOrNull() ?: return null
+        return toStation(source, key, site)
+    }
+
+    private fun toStation(source: StationSource, key: NodeKey, site: DbSite): Station {
         // Stored labels are "L:800" / "N:3500" (BTSearch) or plain "800" (BTMap permits).
         val prefix = "${key.rat.name[0]}:"
         val stored = site.bands.filter { !it.contains(':') || it.startsWith(prefix) }.map { it.substringAfter(':') }.distinct()

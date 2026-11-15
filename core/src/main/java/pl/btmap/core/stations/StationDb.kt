@@ -34,7 +34,7 @@ data class DbSite(
  * nationwide import (hundreds of thousands of cells) small. WAL mode lets lookups run while an
  * import rewrites a source inside one transaction, so a failed download never leaves a half table.
  */
-class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "stations.db", null, 1) {
+class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "stations.db", null, 2) {
 
     init {
         setWriteAheadLoggingEnabled(true)
@@ -51,10 +51,56 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
         )
         db.execSQL("CREATE INDEX cells_node ON cells(src, mcc, mnc, rat, node)")
         db.execSQL("CREATE INDEX sites_src ON sites(src)")
+        db.execSQL(PHYS_INDEX)
         db.execSQL("CREATE TABLE meta(src INTEGER PRIMARY KEY, updated INTEGER, sites INTEGER, cells INTEGER, detail TEXT)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) db.execSQL(PHYS_INDEX)
+    }
+
+    /** A cell matched by channel + PCI, with its identity and site. */
+    data class PhysicalMatch(val site: DbSite, val node: Long?, val cid: Long?, val area: Int?)
+
+    /**
+     * Cell on [channel] with [pci] nearest to the phone (PCIs repeat across the country), within
+     * roughly [maxKm]. Used to name neighbours, which the modem reports without a cell id.
+     */
+    fun findByPhysical(
+        source: StationSource, mcc: Int, mnc: Int, rat: Rat, channel: Int, pci: Int,
+        lat: Double, lng: Double, maxKm: Double = 30.0,
+    ): PhysicalMatch? {
+        val dLat = maxKm / 111.0
+        val dLng = maxKm / (111.0 * Math.cos(Math.toRadians(lat)).coerceAtLeast(0.2))
+        val cos2 = Math.cos(Math.toRadians(lat)).let { it * it }
+        val sql = """SELECT s.station, s.name, s.lat, s.lng, s.ext, s.bands, c.node, c.cid, c.area
+            FROM cells c JOIN sites s ON s.id = c.site
+            WHERE c.src = ? AND c.mcc = ? AND c.mnc = ? AND c.rat = ? AND c.ch = ? AND c.pci = ?
+              AND s.lat BETWEEN ? AND ? AND s.lng BETWEEN ? AND ?
+            ORDER BY (s.lat - ?) * (s.lat - ?) + (s.lng - ?) * (s.lng - ?) * ? LIMIT 1"""
+        val args = arrayOf(
+            source.id.toString(), mcc.toString(), mnc.toString(), rat.ordinal.toString(), channel.toString(), pci.toString(),
+            (lat - dLat).toString(), (lat + dLat).toString(), (lng - dLng).toString(), (lng + dLng).toString(),
+            lat.toString(), lat.toString(), lng.toString(), lng.toString(), cos2.toString(),
+        )
+        return readableDatabase.rawQuery(sql, args).use {
+            if (!it.moveToFirst()) return null
+            PhysicalMatch(
+                site = DbSite(
+                    stationId = it.getString(0), name = it.getString(1), lat = it.getDouble(2), lng = it.getDouble(3),
+                    externalId = it.getString(4), channels = emptyList(),
+                    bands = it.getString(5)?.split(',')?.filter(String::isNotBlank).orEmpty(),
+                ),
+                node = if (it.isNull(6)) null else it.getLong(6),
+                cid = if (it.isNull(7)) null else it.getLong(7),
+                area = if (it.isNull(8)) null else it.getInt(8),
+            )
+        }
+    }
+
+    private companion object {
+        const val PHYS_INDEX = "CREATE INDEX IF NOT EXISTS cells_phys ON cells(src, mcc, mnc, rat, ch, pci)"
+    }
 
     fun info(source: StationSource): SourceInfo? =
         readableDatabase.rawQuery("SELECT updated, sites, cells, detail FROM meta WHERE src = ?", arrayOf(source.id.toString())).use {

@@ -38,6 +38,8 @@ data class SimState(
     val carrierBandwidthsKhz: List<Int>,
     /** Component carriers of the connection, primary first. Empty when idle / no service. */
     val carriers: List<Carrier>,
+    /** [carriers] come from the modem's own carrier configuration, not from inference. */
+    val carriersFromModem: Boolean = false,
     /** The LTE anchor offers EN-DC (status bar shows 5G) but no NR leg is active right now. */
     val nrAvailable: Boolean = false,
     /** Wall-clock time of the last update. */

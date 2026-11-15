@@ -53,6 +53,8 @@ class CellMonitor(
     context: Context,
     refreshIntervalMs: Long = 2_000,
     val dictionary: CellDictionary = CellDictionary(),
+    /** Latest carrier configuration from the modem per SIM slot, when readable. */
+    private val physicalChannels: () -> Map<Int, List<PhysicalChannel>>? = { null },
 ) {
     private val refreshInterval = MutableStateFlow(refreshIntervalMs)
 
@@ -208,7 +210,8 @@ class CellMonitor(
         val cells = withNsaLeg(enriched, inputs.signal, inputs.display, registeredPlmn)
             .sortedWith(compareBy<Cell>({ it.role.ordinal }, { -(it.signal.mainDbm ?: -200) }))
 
-        val carriers = CarrierResolver.resolve(cells, bandwidths, plmn, dictionary)
+        val modem = physicalChannels()?.get(sub.simSlotIndex)
+        val carriers = CarrierResolver.resolve(cells, bandwidths, plmn, dictionary, modem)
         val hasNrLeg = cells.any { it.rat == Rat.NR && it.role != CellRole.NEIGHBOUR }
         val announced = networkMode(cells, inputs.display, bandwidths)
         // Android reports NR_NSA as soon as the anchor advertises EN-DC; only call it 5G with a live NR leg.
@@ -230,6 +233,7 @@ class CellMonitor(
             cells = cells,
             carrierBandwidthsKhz = bandwidths,
             carriers = carriers,
+            carriersFromModem = !modem.isNullOrEmpty(),
             updatedAtMillis = System.currentTimeMillis(),
             error = inputs.error,
         )
@@ -246,12 +250,17 @@ class CellMonitor(
         plmn: Plmn?,
     ): List<Cell> {
         if (cells.any { it.rat == Rat.NR && it.role != CellRole.NEIGHBOUR }) return cells
-        val nrSignal = signal?.getCellSignalStrengths(CellSignalStrengthNr::class.java)?.firstOrNull()
-            ?: return cells
-        val parsed = CellInfoParser.nrSignal(nrSignal)
-        if (parsed.ssRsrp == null && parsed.csiRsrp == null) return cells
         val nsa = display?.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA ||
             display?.overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED
+        val nrSignal = signal?.getCellSignalStrengths(CellSignalStrengthNr::class.java)?.firstOrNull()
+            ?.let(CellInfoParser::nrSignal)?.takeIf { it.ssRsrp != null || it.csiRsrp != null }
+        if (nrSignal == null) {
+            // MIUI/MediaTek list the EN-DC leg as an unregistered NR cell: that measured cell is the leg.
+            if (!nsa) return cells
+            val leg = cells.filter { it.rat == Rat.NR }.maxByOrNull { it.signal.ssRsrp ?: -200 } ?: return cells
+            return cells.map { if (it === leg) it.copy(role = CellRole.SECONDARY) else it }
+        }
+        val parsed = nrSignal
         if (!nsa && cells.none { it.role == CellRole.PRIMARY && it.rat == Rat.LTE }) return cells
         // Best measured NR neighbour on the anchor's PLMN is usually the NSA leg; borrow its identity.
         val neighbour = cells.filter { it.rat == Rat.NR }.maxByOrNull { it.signal.ssRsrp ?: -200 }

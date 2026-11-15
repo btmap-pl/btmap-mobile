@@ -27,6 +27,9 @@ import pl.btmap.core.location.LocationTracker
 import pl.btmap.core.model.Carrier
 import pl.btmap.core.model.CarrierSource
 import pl.btmap.core.model.Cell
+import pl.btmap.core.model.CellRole
+import pl.btmap.core.model.Plmn
+import pl.btmap.core.model.Rat
 import pl.btmap.core.model.CellIdentity
 import pl.btmap.core.model.SimState
 import pl.btmap.core.radio.Bands
@@ -35,6 +38,8 @@ import pl.btmap.core.stations.StationRepository
 import pl.btmap.core.telephony.CellDictionary
 import kotlinx.coroutines.withContext
 import pl.btmap.core.telephony.CellMonitor
+import pl.btmap.core.telephony.PhysicalChannel
+import pl.btmap.core.telephony.PhysicalChannelReader
 import java.io.File
 
 /** Everything a screen needs, in one immutable value. */
@@ -45,7 +50,13 @@ data class LiveState(
     val stations: Map<NodeKey, Station?> = emptyMap(),
     val running: Boolean = false,
     val apiError: String? = null,
+    /** Neighbours named from the station database, by [NeighbourKey]; null = looked up, not found. */
+    val neighbours: Map<NeighbourKey, StationRepository.NeighbourMatch?> = emptyMap(),
 ) {
+    /** Database match for a neighbour seen by a SIM on [plmn]. */
+    fun neighbourOf(cell: Cell, plmn: Plmn?): StationRepository.NeighbourMatch? =
+        NeighbourKey.of(cell, plmn, fix)?.let { neighbours[it] }
+
     /**
      * BTMap station of a cell. A search hit that is not a community node link and lies further than
      * [MAX_UNLINKED_DISTANCE_M] from the phone is a coincidental stationId match, so it is dropped.
@@ -59,23 +70,8 @@ data class LiveState(
         return station.takeIf { distance <= MAX_UNLINKED_DISTANCE_M }
     }
 
-    /**
-     * Carriers of a SIM, with unknown secondaries narrowed down using the BTMap station of the
-     * PCell: if the site holds exactly as many unused bands of that technology as there are unknown
-     * carriers and that number is one, the band is known.
-     */
-    fun carriersOf(sim: SimState): List<Carrier> {
-        val carriers = sim.carriers
-        val unknown = carriers.filter { it.source == CarrierSource.UNKNOWN && it.rat == carriers.firstOrNull()?.rat }
-        if (unknown.size != 1) return carriers
-        val pcell = sim.primary ?: return carriers
-        val station = stationOf(pcell) ?: return carriers
-        val used = carriers.filter { it.rat == pcell.rat }.mapNotNull { it.band?.label }.toSet()
-        val free = station.bands.filter { it !in used }.distinct()
-        if (free.size != 1) return carriers
-        val band = Bands.fromLabel(pcell.rat, free.single()) ?: return carriers
-        return carriers.map { if (it === unknown.single()) it.copy(band = band, source = CarrierSource.STATION) else it }
-    }
+    /** Carriers of a SIM: from the modem when readable, otherwise as inferred by the monitor. Never from a database. */
+    fun carriersOf(sim: SimState): List<Carrier> = sim.carriers
 
     companion object {
         const val MAX_UNLINKED_DISTANCE_M = 35_000
@@ -93,7 +89,10 @@ class BtmapCore(
     refreshIntervalMs: Long = PowerMode.LIVE.cellRefreshMs,
 ) {
     val dictionary = CellDictionary(File(context.filesDir, "cell-dictionary.json"))
-    val monitor = CellMonitor(context, refreshIntervalMs, dictionary)
+    /** Carrier configuration straight from the modem (needs the DUMP permission granted over adb). */
+    val physicalChannels = PhysicalChannelReader(context)
+    @Volatile private var latestChannels: Map<Int, List<PhysicalChannel>>? = null
+    val monitor = CellMonitor(context, refreshIntervalMs, dictionary) { latestChannels }
     val location = LocationTracker(context)
     val api = BtmapApi(apiBaseUrl)
 
@@ -116,7 +115,7 @@ class BtmapCore(
         scope.launch {
             stations.version.collect {
                 synchronized(inFlight) { failedAt.clear() }
-                _state.update { it.copy(stations = emptyMap()) }
+                _state.update { it.copy(stations = emptyMap(), neighbours = emptyMap()) }
             }
         }
     }
@@ -189,6 +188,7 @@ class BtmapCore(
                     if (shouldSample(snap)) {
                         log.record(snap, _state.value.fix)
                         resolveStations(snap)
+                        resolveNeighbours(snap)
                         _samples.tryEmit(_state.value)
                     }
                 }
@@ -198,6 +198,14 @@ class BtmapCore(
                     location.fixes(m.locationProviders, m.locationIntervalMs, m.locationMinDistanceM)
                         .catch { /* No location permission or providers off: keep cells running. */ }
                 }.collect { fix -> _state.update { it.copy(fix = fix) } }
+            },
+            scope.launch(Dispatchers.IO) {
+                // Same pace as the cell refresh; checks the permission each time so a grant over
+                // adb takes effect without restarting the app.
+                while (true) {
+                    latestChannels = if (physicalChannels.isAvailable) physicalChannels.read() else null
+                    delay(refreshFor(_mode.value))
+                }
             },
             scope.launch(Dispatchers.IO) {
                 while (true) {
@@ -244,6 +252,20 @@ class BtmapCore(
         lookup(snap.sims.flatMap { sim -> sim.cells.filter(Cell::isServing) }.mapNotNull(NodeKey::of))
     }
 
+    /** Names measured neighbours (channel + PCI) from the station database, near the current position. */
+    private fun resolveNeighbours(snap: NetworkSnapshot) {
+        val fix = _state.value.fix ?: return
+        val keys = snap.sims.flatMap { sim ->
+            val plmn = sim.registeredPlmn ?: sim.simPlmn
+            sim.cells.filter { it.role == CellRole.NEIGHBOUR }.mapNotNull { NeighbourKey.of(it, plmn, fix) }
+        }.distinct().filter { it !in _state.value.neighbours }
+        if (keys.isEmpty()) return
+        scope.launch(Dispatchers.IO) {
+            val found = keys.associateWith { k -> stations.findNeighbour(k.plmn, k.rat, k.channel, k.pci, fix.lat, fix.lng) }
+            _state.update { it.copy(neighbours = (it.neighbours + found).let { m -> if (m.size > 2_000) found else m }) }
+        }
+    }
+
     private fun lookup(candidates: List<NodeKey>) {
         val keys = candidates.distinct().filter { it !in _state.value.stations }
         val now = System.currentTimeMillis()
@@ -270,5 +292,21 @@ class BtmapCore(
 
     private companion object {
         const val RETRY_AFTER_MS = 30_000L
+    }
+}
+
+/**
+ * A neighbour as the modem reports it: network of the SIM, technology, channel and PCI, plus the
+ * area (~2 km grid) it was seen in, because the same PCI on the same channel exists all over Poland.
+ */
+data class NeighbourKey(val plmn: Plmn, val rat: Rat, val channel: Int, val pci: Int, val area: Long) {
+    companion object {
+        fun of(cell: Cell, simPlmn: Plmn?, fix: GeoFix?): NeighbourKey? {
+            val id = cell.identity
+            if (id.cid != null || fix == null) return null
+            val plmn = id.plmn ?: simPlmn ?: return null
+            val area = Math.round(fix.lat * 50) * 100_000 + Math.round(fix.lng * 50)
+            return NeighbourKey(plmn, id.rat, id.channel ?: return null, id.physicalId ?: return null, area)
+        }
     }
 }

@@ -90,7 +90,8 @@ internal object CellInfoParser {
     private fun nr(info: CellInfoNr): Cell {
         val id = info.cellIdentity as CellIdentityNr
         val s = info.cellSignalStrength as CellSignalStrengthNr
-        val nci = id.nci.orNullBelow(68_719_476_735L)
+        // 2^28-1 is a further "unknown" value some modems use (shows as gNB 65535:4095).
+        val nci = id.nci.orNullBelow(68_719_476_735L)?.takeIf { it != 268_435_455L }
         val split = nci?.let(CellMath::splitNci)
         val arfcn = id.nrarfcn.orNull()
         val reportedBands = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) id.bands else null
