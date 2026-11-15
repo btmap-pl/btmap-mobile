@@ -95,14 +95,17 @@ object BandLock {
     val POLISH_LTE = listOf(1, 3, 7, 8, 20, 28, 32, 38)
     val POLISH_NR = listOf(1, 3, 7, 8, 20, 28, 38, 41, 75, 77, 78)
 
-    fun lteLabel(band: Int) = when (band) {
-        1 -> "2100"; 3 -> "1800"; 7 -> "2600"; 8 -> "900"; 20 -> "800"; 28 -> "700"; 32 -> "1500"; 38 -> "2600 TDD"
-        else -> "B$band"
+    /** Downlink frequency label (MHz) of a band, shared by LTE and NR numbering. */
+    private fun mhz(band: Int): String? = when (band) {
+        1 -> "2100"; 2 -> "1900"; 3 -> "1800"; 4 -> "1700/2100"; 5 -> "850"; 7 -> "2600"; 8 -> "900"
+        12, 13, 14, 17 -> "700"; 18, 19, 20, 26 -> "800"; 25 -> "1900"; 28 -> "700"; 29 -> "700 SDL"
+        30 -> "2300"; 32 -> "1500 SDL"; 34 -> "2000 TDD"; 38 -> "2600 TDD"; 39 -> "1900 TDD"; 40 -> "2300 TDD"
+        41 -> "2500 TDD"; 42 -> "3500 TDD"; 43 -> "3700 TDD"; 46 -> "5200 TDD"; 48 -> "3600 TDD"; 66 -> "1700/2100"
+        71 -> "600"; 75 -> "1500 SDL"; 77 -> "3700"; 78 -> "3500"; 79 -> "4700"
+        else -> null
     }
 
-    fun nrLabel(band: Int) = when (band) {
-        1 -> "2100"; 3 -> "1800"; 7 -> "2600"; 8 -> "900"; 20 -> "800"; 28 -> "700"; 38, 41 -> "2600 TDD"
-        75 -> "1500"; 77 -> "3700"; 78 -> "3500"
-        else -> "n$band"
-    }
+    fun lteLabel(band: Int) = mhz(band) ?: "B$band"
+
+    fun nrLabel(band: Int) = mhz(band) ?: "n$band"
 }

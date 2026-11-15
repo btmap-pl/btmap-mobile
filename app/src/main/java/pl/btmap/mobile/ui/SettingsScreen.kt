@@ -824,13 +824,25 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
     val sims = live.snapshot.sims
     var slot by rememberSaveable { mutableStateOf(sims.firstOrNull { it.isDataSim }?.slotIndex ?: 0) }
     val sim = sims.firstOrNull { it.slotIndex == slot } ?: sims.firstOrNull()
-    val current = active[sim?.slotIndex ?: 0] ?: pl.btmap.mobile.tools.BandSelection()
+    val network = app.network
+    // What the modem itself says: supported bands and the current lock (MediaTek answers directly).
+    var modem by remember(slot) { mutableStateOf<pl.btmap.mobile.tools.ModemBands?>(null) }
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(slot, reload) { modem = network.modemBands(sim?.slotIndex ?: slot) }
+    val mtk = modem?.mediatek == true
+    val current = (if (mtk) modem?.current else active[sim?.slotIndex ?: 0]) ?: pl.btmap.mobile.tools.BandSelection()
 
-    val lteBands = (pl.btmap.mobile.tools.BandLock.POLISH_LTE + observed.lte + current.lte).distinct().sorted()
-    val nrBands = (pl.btmap.mobile.tools.BandLock.POLISH_NR + observed.nr + current.nr).distinct().sorted()
+    val lteBands = if (mtk && modem!!.supportedLte.isNotEmpty()) modem!!.supportedLte.sorted()
+        else (pl.btmap.mobile.tools.BandLock.POLISH_LTE + observed.lte + current.lte).distinct().sorted()
+    val nrBands = if (mtk && modem!!.supportedNr.isNotEmpty()) modem!!.supportedNr.sorted()
+        else (pl.btmap.mobile.tools.BandLock.POLISH_NR + observed.nr + current.nr).distinct().sorted()
+    val detectedLte = if (mtk) lteBands.toSet() else observed.lte
+    val detectedNr = if (mtk) nrBands.toSet() else observed.nr
+    var confirmReset by remember { mutableStateOf(false) }
     // Shown as "allowed": empty restriction = everything allowed.
-    var lte by remember(slot, current) { mutableStateOf(current.lte.ifEmpty { lteBands.toSet() }) }
-    var nr by remember(slot, current) { mutableStateOf(current.nr.ifEmpty { nrBands.toSet() }) }
+    // Re-derived whenever the modem's answer (or the band list) changes.
+    var lte by remember(slot, current, lteBands) { mutableStateOf(current.lte.ifEmpty { lteBands.toSet() }) }
+    var nr by remember(slot, current, nrBands) { mutableStateOf(current.nr.ifEmpty { nrBands.toSet() }) }
     val selection = pl.btmap.mobile.tools.BandSelection(
         lte = if (lte.containsAll(lteBands)) emptySet() else lte,
         nr = if (nr.containsAll(nrBands)) emptySet() else nr,
@@ -848,7 +860,6 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
         }
     }
 
-    val network = app.network
     val support by network.bandLockSupport.collectAsStateWithLifecycle()
     var modeBusy by remember { mutableStateOf(false) }
     var mode by remember(slot) { mutableStateOf(network.mode(slot)) }
@@ -856,7 +867,8 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
     fun apply(target: pl.btmap.mobile.tools.BandSelection, label: String) {
         val s = sim ?: return
         busy = true
-        feedback = BandFeedback(true, "Wymuszam i sprawdzam…", "SIM ${s.slotIndex + 1} na chwilę przejdzie na 3G, potem przez ~30 s sprawdzam, na jakim paśmie zostaje")
+        feedback = if (mtk) BandFeedback(true, "Zapisuję pasma w modemie…", "Potem sprawdzam, na jakim paśmie jest SIM ${s.slotIndex + 1}")
+            else BandFeedback(true, "Wymuszam i sprawdzam…", "SIM ${s.slotIndex + 1} na chwilę przejdzie na 3G, potem przez ~30 s sprawdzam, na jakim paśmie zostaje")
         scope.launch {
             val simLabel = "SIM ${s.slotIndex + 1} · " + Operators.displayName(s.registeredPlmn, s.networkOperatorName)
             val outcome = network.applyBands(s.slotIndex, s.subscriptionId, target)
@@ -876,6 +888,23 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
             } else if (keep) {
                 store.setActive(s.slotIndex, target)
             }
+            reload++
+            busy = false
+        }
+    }
+
+    /** Factory band settings on every SIM. */
+    fun resetAll() {
+        busy = true
+        feedback = BandFeedback(true, "Przywracam domyślne pasma…", "Wszystkie karty SIM")
+        scope.launch {
+            val results = sims.map { s -> network.resetBands(s.slotIndex, s.subscriptionId) to s }
+            sims.forEach { store.setActive(it.slotIndex, pl.btmap.mobile.tools.BandSelection()) }
+            val failed = results.filter { it.first is pl.btmap.mobile.tools.BandLockOutcome.Failed }
+            feedback = if (failed.isEmpty()) BandFeedback(true, "Przywrócono domyślne pasma", "Wszystkie pasma odblokowane na ${sims.size} kartach SIM")
+                else BandFeedback(false, "Nie udało się przywrócić pasm", failed.joinToString { "SIM ${it.second.slotIndex + 1}" })
+            lte = lteBands.toSet(); nr = nrBands.toSet()
+            reload++
             busy = false
         }
     }
@@ -955,6 +984,15 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                     onSelect = { slot = it },
                 )
             }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                when {
+                    modem == null -> "Sprawdzam modem…"
+                    mtk -> "Sterowanie: bezpośrednio w modemie MediaTek · pasma odczytane z modemu"
+                    else -> "Sterowanie: przez Androida (zależnie od modemu)"
+                },
+                style = MaterialTheme.typography.labelSmall, color = if (mtk) Btmap.colors.good else Btmap.colors.muted,
+            )
             if (restricted) {
                 Spacer(Modifier.height(12.dp))
                 WideButton("Odblokuj wszystkie pasma") {
@@ -994,8 +1032,8 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
             }
         }
 
-        // ---- Band support on this phone ----
-        if (support != pl.btmap.mobile.tools.BandLockSupport.UNKNOWN) {
+        // ---- Band support on this phone (only matters without direct modem control) ----
+        if (!mtk && support != pl.btmap.mobile.tools.BandLockSupport.UNKNOWN) {
             val works = support == pl.btmap.mobile.tools.BandLockSupport.WORKS
             Row(
                 Modifier
@@ -1017,13 +1055,13 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
         }
 
         // ---- LTE / NR ----
-        BandCard("LTE", lteBands, lte, observed.lte, 3, { "B$it" }, { pl.btmap.mobile.tools.BandLock.lteLabel(it) }) { lte = it }
-        BandCard("5G NR", nrBands, nr, observed.nr, 3, { "n$it" }, { pl.btmap.mobile.tools.BandLock.nrLabel(it) }) { nr = it }
+        BandCard("LTE", lteBands, lte, detectedLte, 3, { "B$it" }, { pl.btmap.mobile.tools.BandLock.lteLabel(it) }) { lte = it }
+        BandCard("5G NR", nrBands, nr, detectedNr, 3, { "n$it" }, { pl.btmap.mobile.tools.BandLock.nrLabel(it) }) { nr = it }
 
         Row(Modifier.enterAnimation(4), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(6.dp).clip(RoundedCornerShape(50)).background(Btmap.colors.good))
             Spacer(Modifier.width(6.dp))
-            Text("wykryte przez modem tego telefonu", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
+            Text(if (mtk) "obsługiwane przez modem (odczytane z modemu)" else "wykryte przez modem tego telefonu", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
         }
 
         // ---- Actions ----
@@ -1085,9 +1123,29 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                 }
             }
         }
-        Hint("Wymuszenie działa do ponownego uruchomienia telefonu — potem zastosuj konfigurację jeszcze raz.")
+        // ---- Reset ----
+        Card(Modifier.enterAnimation(6)) {
+            Text("Domyślne pasma", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Przywraca fabryczne ustawienia: wszystkie pasma, które obsługuje modem, na obu kartach SIM.",
+                style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
+            )
+            Spacer(Modifier.height(12.dp))
+            WideButton("Resetuj pasma do domyślnych", danger = true) { if (!busy) confirmReset = true }
+        }
+        Hint(if (mtk) "Blokada jest zapisana w modemie. Stan powyżej jest odczytywany z modemu przy każdym otwarciu tej strony." else "Wymuszenie działa do ponownego uruchomienia telefonu — potem zastosuj konfigurację jeszcze raz.")
     }
 
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("Przywrócić domyślne pasma?") },
+            text = { Text("Wszystkie pasma obsługiwane przez modem zostaną odblokowane na obu kartach SIM.") },
+            confirmButton = { TextButton(onClick = { confirmReset = false; resetAll() }) { Text("Resetuj", color = Btmap.colors.bad) } },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Anuluj") } },
+            containerColor = Btmap.colors.card,
+        )
+    }
     if (naming) {
         var name by remember { mutableStateOf("") }
         AlertDialog(

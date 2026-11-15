@@ -45,6 +45,17 @@ private object Types {
     }
 }
 
+/** What the modem reports about bands for one SIM. */
+data class ModemBands(
+    /** True when bands are locked directly in a MediaTek modem (AT+EPBSEH). */
+    val mediatek: Boolean,
+    /** Supported bands from the modem; empty when the modem does not tell. */
+    val supportedLte: Set<Int>,
+    val supportedNr: Set<Int>,
+    /** Current restriction read from the modem (MediaTek) — empty sets = all bands. */
+    val current: BandSelection?,
+)
+
 /** How the modem treats band locking, learned by trying it once on this phone. */
 enum class BandLockSupport { UNKNOWN, WORKS, IGNORED }
 
@@ -120,11 +131,64 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
     fun mode(slot: Int): NetworkModePreset =
         runCatching { NetworkModePreset.valueOf(prefs.getString("mode_$slot", null)!!) }.getOrDefault(NetworkModePreset.AUTO)
 
+    /** Bands the modem of [slot] supports and allows now; MediaTek modems answer directly. */
+    suspend fun modemBands(slot: Int): ModemBands {
+        val supported = MtkBandControl.supported(slot)
+        if (supported != null) {
+            val current = MtkBandControl.current(slot)
+            val sel = current?.let {
+                BandSelection(
+                    lte = if (it.lteBands.containsAll(supported.lteBands)) emptySet() else it.lteBands,
+                    nr = if (it.nrBands.containsAll(supported.nrBands)) emptySet() else it.nrBands,
+                )
+            }
+            return ModemBands(true, supported.lteBands, supported.nrBands, sel)
+        }
+        return ModemBands(false, emptySet(), emptySet(), null)
+    }
+
     /**
-     * Applies [selection] to the SIM in [slot] / [subId], makes the modem select a cell again and
-     * checks the band it ends up on.
+     * Factory band settings for [slot]: every supported band on MediaTek, and no system-selection
+     * restriction on any phone.
+     */
+    suspend fun resetBands(slot: Int, subId: Int): BandLockOutcome {
+        val mtk = if (MtkBandControl.supported(slot) != null) MtkBandControl.reset(slot) else null
+        runCatching { BandLock.apply(subId, BandSelection()) }
+        return if (mtk == false) BandLockOutcome.Failed("Modem nie przyjął domyślnych pasm") else BandLockOutcome.Restored
+    }
+
+    /**
+     * Applies [selection] to the SIM in [slot] / [subId]. MediaTek modems lock the bands directly;
+     * elsewhere Android's system-selection channels are used. Either way the band the SIM ends up
+     * on is checked.
      */
     suspend fun applyBands(slot: Int, subId: Int, selection: BandSelection): BandLockOutcome {
+        if (MtkBandControl.supported(slot) != null) return applyMediatek(slot, selection)
+        return applyAndroid(slot, subId, selection)
+    }
+
+    private suspend fun applyMediatek(slot: Int, selection: BandSelection): BandLockOutcome {
+        if (!MtkBandControl.apply(slot, selection)) return BandLockOutcome.Failed("Modem odrzucił konfigurację pasm")
+        if (selection.isUnrestricted) return BandLockOutcome.Restored
+        // The modem moves on its own; wait until the SIM sits on an allowed band.
+        val deadline = System.currentTimeMillis() + 45_000
+        var label: String? = null
+        while (System.currentTimeMillis() < deadline) {
+            delay(1_000)
+            val pcell = core.state.value.snapshot.sims.firstOrNull { it.slotIndex == slot }?.primary ?: continue
+            val band = pcell.identity.band ?: continue
+            if (pcell.rat != Rat.LTE && pcell.rat != Rat.NR) continue
+            val allowed = if (pcell.rat == Rat.LTE) selection.lte else selection.nr
+            label = (if (pcell.rat == Rat.NR) "n" else "B") + band.number + " · " + band.label
+            if (allowed.isEmpty() || band.number in allowed) {
+                remember(BandLockSupport.WORKS)
+                return BandLockOutcome.Applied(label)
+            }
+        }
+        return if (label == null) BandLockOutcome.NoService else BandLockOutcome.Applied("$label (modem jeszcze przełącza)")
+    }
+
+    private suspend fun applyAndroid(slot: Int, subId: Int, selection: BandSelection): BandLockOutcome {
         val sent = runCatching { BandLock.apply(subId, selection) }
         if (sent.isFailure) return BandLockOutcome.Failed(sent.exceptionOrNull()?.message ?: "Błąd Shizuku")
         if (sent.getOrNull() == false) return BandLockOutcome.Failed("Modem odrzucił konfigurację")
