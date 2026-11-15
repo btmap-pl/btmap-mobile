@@ -23,7 +23,11 @@ class DatabaseWorker(context: Context, params: WorkerParameters) : CoroutineWork
     override suspend fun doWork(): Result {
         val app = applicationContext as BtmapApp
         val settings = app.settings.settings.value
-        val result = app.core.stations.download(settings.database, settings.apiBaseUrl, settings.btsearchMncs)
+        // The networks of the SIM cards in the phone are downloaded first.
+        val simMncs = app.core.state.value.snapshot.sims
+            .sortedByDescending { it.isDataSim }
+            .mapNotNull { (it.registeredPlmn ?: it.simPlmn)?.mnc?.toIntOrNull() }
+        val result = app.core.stations.download(settings.database, settings.apiBaseUrl, settings.btsearchMncs, simMncs)
         return if (result.isSuccess) Result.success() else Result.failure()
     }
 
@@ -60,7 +64,8 @@ class DatabaseWorker(context: Context, params: WorkerParameters) : CoroutineWork
                         .build(),
                 )
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.REPLACE, request)
+            // KEEP: asking again while a download runs must not restart it from zero.
+            WorkManager.getInstance(context).enqueueUniqueWork(NOW, ExistingWorkPolicy.KEEP, request)
         }
 
         fun cancel(context: Context) {

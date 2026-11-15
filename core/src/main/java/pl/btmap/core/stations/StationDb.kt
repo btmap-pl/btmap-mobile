@@ -111,6 +111,44 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
         }
     }
 
+    /**
+     * Replaces the cells of one operator ([mnc]) of [source], atomically, so each operator becomes
+     * usable as soon as it is downloaded. [detail] is stored as the source's description (the
+     * operators present).
+     */
+    fun replaceOperator(source: StationSource, mnc: Int, detail: String?, fill: (Writer) -> Unit): SourceInfo {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val src = source.id.toString()
+            db.delete("cells", "src = ? AND mnc = ?", arrayOf(src, mnc.toString()))
+            fill(Writer(db, source))
+            // Sites left without cells belonged only to the replaced operator's old data.
+            db.execSQL("DELETE FROM sites WHERE src = ? AND NOT EXISTS (SELECT 1 FROM cells c WHERE c.site = sites.id)", arrayOf(src))
+            val sites = db.rawQuery("SELECT COUNT(*) FROM sites WHERE src = ?", arrayOf(src)).use { it.moveToFirst(); it.getInt(0) }
+            val cells = db.rawQuery("SELECT COUNT(*) FROM cells WHERE src = ?", arrayOf(src)).use { it.moveToFirst(); it.getInt(0) }
+            val info = SourceInfo(System.currentTimeMillis(), sites, cells, detail)
+            db.insertWithOnConflict(
+                "meta", null,
+                ContentValues().apply {
+                    put("src", source.id); put("updated", info.updatedAtMillis)
+                    put("sites", sites); put("cells", cells); put("detail", detail)
+                },
+                SQLiteDatabase.CONFLICT_REPLACE,
+            )
+            db.setTransactionSuccessful()
+            return info
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /** Cells stored per operator (MNC) for [source]. */
+    fun cellsPerOperator(source: StationSource): Map<Int, Int> =
+        readableDatabase.rawQuery("SELECT mnc, COUNT(*) FROM cells WHERE src = ? GROUP BY mnc", arrayOf(source.id.toString())).use {
+            buildMap { while (it.moveToNext()) put(it.getInt(0), it.getInt(1)) }
+        }
+
     fun clear(source: StationSource) {
         replace(source, null) { }
         writableDatabase.delete("meta", "src = ?", arrayOf(source.id.toString()))

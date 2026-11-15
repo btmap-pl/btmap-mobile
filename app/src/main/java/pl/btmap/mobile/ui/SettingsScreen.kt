@@ -3,12 +3,19 @@ package pl.btmap.mobile.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.drawscope.Stroke
+import pl.btmap.core.model.Plmn
+import pl.btmap.core.radio.Operators
+import pl.btmap.core.stations.DbOperator
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.btmap.core.stations.DbOperators
 import pl.btmap.core.stations.ImportState
+import pl.btmap.core.stations.OperatorProgress
+import androidx.compose.animation.Crossfade
 import pl.btmap.core.stations.StationSource
 import pl.btmap.mobile.work.DatabaseWorker
 import androidx.compose.animation.AnimatedContent
@@ -65,6 +72,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -145,9 +153,11 @@ fun SettingsScreen(
                     Spacer(Modifier.width(14.dp))
                     Text(current.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 }
-                Card(Modifier.enterAnimation(1)) {
+                if (current == SettingsPage.DATABASE) {
+                    DatabasePage(settings, onChange, core)
+                } else Card(Modifier.enterAnimation(1)) {
                     when (current) {
-                        SettingsPage.DATABASE -> DatabasePage(settings, onChange, core)
+                        SettingsPage.DATABASE -> Unit
                         SettingsPage.APPEARANCE -> AppearancePage(settings, onChange)
                         SettingsPage.MEASUREMENTS -> MeasurementsPage(settings, onChange)
                         SettingsPage.NOTIFICATION -> NotificationPage(settings, onChange)
@@ -240,124 +250,186 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
     val version by core.stations.version.collectAsStateWithLifecycle()
     val info = remember(settings.database, state, version) { core.stations.info(settings.database) }
     var confirmDelete by remember { mutableStateOf(false) }
+    val running = state as? ImportState.Running
+    val failed = (state as? ImportState.Failed)?.takeIf { it.source == settings.database }
+    val downloadedMncs = info?.detail?.split(',')?.mapNotNull(String::toIntOrNull)?.toSet()
+    val outdatedSelection = settings.database == StationSource.BTSEARCH && info != null && downloadedMncs != settings.btsearchMncs
 
-    Label("Źródło")
-    Segmented(
-        options = StationSource.entries.map { it to it.label },
-        selected = settings.database,
-        onSelect = { src -> onChange { it.copy(database = src) } },
-    )
-    Spacer(Modifier.height(10.dp))
-    Hint(
-        when (settings.database) {
-            StationSource.BTMAP -> "Stacje dodane i zweryfikowane przez społeczność BTMap, bez danych z rejestru UKE."
-            StationSource.BTSEARCH -> "Baza btsearch.pl tworzona przez pasjonatów. Plik obejmuje całą Polskę, więc pobranie trwa kilka minut; zapisywani są tylko wybrani operatorzy."
-        },
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // ---- Status ----
+        Card(Modifier.enterAnimation(1)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)).background(Btmap.colors.accent.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center,
+                ) { DatabaseIcon(Btmap.colors.accent) }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(settings.database.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        when {
+                            running != null -> "Pobieranie…"
+                            failed != null -> "Pobieranie nie powiodło się"
+                            info == null -> "Nie pobrano"
+                            else -> "Zaktualizowano ${relativeTime(info.updatedAtMillis)}"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = when {
+                            failed != null -> Btmap.colors.bad
+                            running != null -> Btmap.colors.accent
+                            else -> Btmap.colors.muted
+                        },
+                    )
+                }
+                StatusDot(
+                    when {
+                        running != null -> Btmap.colors.accent
+                        failed != null -> Btmap.colors.bad
+                        info == null || outdatedSelection -> Btmap.colors.poor
+                        else -> Btmap.colors.good
+                    },
+                    pulsing = running != null,
+                )
+            }
 
-    AnimatedVisibility(settings.database == StationSource.BTSEARCH, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-        Column {
-            Spacer(Modifier.height(18.dp))
-            Label("Operatorzy")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                DbOperators.ALL.forEach { op ->
-                    val on = op.mnc in settings.btsearchMncs
-                    val interaction = remember { MutableInteractionSource() }
-                    Pill(
-                        op.name,
-                        if (on) Btmap.colors.accent else Btmap.colors.muted,
-                        style = if (on) PillStyle.FILLED else PillStyle.OUTLINED,
-                        modifier = Modifier
-                            .pressScale(interaction)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable(interaction, LocalIndication.current) {
+            AnimatedContent(targetState = running != null, label = "dbStatus") { isRunning ->
+                Column {
+                    Spacer(Modifier.height(16.dp))
+                    if (isRunning && running != null && running.operators.isNotEmpty()) {
+                        OperatorProgressList(running.operators)
+                        running.waitingUntil?.let { until -> RateLimitCountdown(until) }
+                    } else if (isRunning && running != null) {
+                        val fraction = if (running.total > 0) running.done.toFloat() / running.total else 0f
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.displaySmall.copy(fontSize = MaterialTheme.typography.headlineLarge.fontSize), color = Btmap.colors.accent)
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "${formatCount(running.done)} / ${if (running.total > 0) formatCount(running.total) else "?"} stacji",
+                                style = MaterialTheme.typography.bodyMedium, color = Btmap.colors.muted,
+                                modifier = Modifier.padding(bottom = 6.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Meter(fraction, Btmap.colors.accent, Modifier.fillMaxWidth(), height = 8.dp)
+                        Spacer(Modifier.height(8.dp))
+                        Text("${formatCount(running.cells)} komórek zapisanych", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+                        running.waitingUntil?.let { until -> RateLimitCountdown(until) }
+                    } else {
+                        if (settings.database == StationSource.BTSEARCH && info != null) {
+                            val perOperator = remember(info) { core.stations.cellsPerOperator(StationSource.BTSEARCH) }
+                            OperatorProgressList(
+                                DbOperators.ALL.filter { it.mnc in settings.btsearchMncs || it.mnc in perOperator }.map { op ->
+                                    val cells = perOperator[op.mnc]
+                                    OperatorProgress(
+                                        op.mnc, op.name,
+                                        if (cells != null) OperatorProgress.Status.DONE else OperatorProgress.Status.PENDING,
+                                        cells = cells ?: 0,
+                                    )
+                                },
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatTile("Stacje", info?.let { formatCount(it.sites) } ?: "—", Modifier.weight(1f))
+                            StatTile("Komórki", info?.let { formatCount(it.cells) } ?: "—", Modifier.weight(1f))
+                            StatTile(
+                                "Następna",
+                                if (settings.dbRefreshDays == 0) "ręcznie"
+                                else info?.let { relativeFuture(it.updatedAtMillis + settings.dbRefreshDays * 86_400_000L) } ?: "teraz",
+                                Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+
+            failed?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it.message, style = MaterialTheme.typography.bodySmall, color = Btmap.colors.bad)
+            }
+            if (outdatedSelection && running == null) {
+                Spacer(Modifier.height(10.dp))
+                Text("Zmieniono operatorów — zaktualizuj bazę, aby to zastosować.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.poor)
+            }
+            if (info != null && info.cells == 0 && settings.database == StationSource.BTMAP && running == null) {
+                Spacer(Modifier.height(10.dp))
+                Hint("W BTMap nie ma jeszcze stacji spoza UKE. Pojawią się, gdy społeczność je doda.")
+            }
+
+            Spacer(Modifier.height(16.dp))
+            if (running != null) {
+                WideButton("Anuluj pobieranie", danger = true) { DatabaseWorker.cancel(context) }
+            } else {
+                WideButton(if (info == null) "Pobierz bazę" else "Aktualizuj teraz", primary = true) {
+                    DatabaseWorker.runNow(context, settings)
+                }
+                if (settings.dbWifiOnly) {
+                    Spacer(Modifier.height(6.dp))
+                    Hint("Ruszy po połączeniu z Wi-Fi.")
+                }
+            }
+        }
+
+        // ---- Source ----
+        SectionLabel("Źródło", 2)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.enterAnimation(2)) {
+            SourceCard(
+                title = "BTMap",
+                subtitle = "Stacje społeczności, bez danych z UKE",
+                selected = settings.database == StationSource.BTMAP,
+                modifier = Modifier.weight(1f),
+            ) { onChange { it.copy(database = StationSource.BTMAP) } }
+            SourceCard(
+                title = "BTSearch",
+                subtitle = "Baza btsearch.pl z pełnymi ID komórek",
+                selected = settings.database == StationSource.BTSEARCH,
+                modifier = Modifier.weight(1f),
+            ) { onChange { it.copy(database = StationSource.BTSEARCH) } }
+        }
+
+        // ---- Operators (BTSearch) ----
+        AnimatedVisibility(settings.database == StationSource.BTSEARCH, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SectionLabel("Operatorzy", 3)
+                Card(Modifier.enterAnimation(3)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DbOperators.ALL.forEach { op ->
+                            OperatorChip(op, selected = op.mnc in settings.btsearchMncs) {
                                 onChange {
+                                    val on = op.mnc in it.btsearchMncs
                                     val next = if (on) it.btsearchMncs - op.mnc else it.btsearchMncs + op.mnc
                                     it.copy(btsearchMncs = next.ifEmpty { it.btsearchMncs })
                                 }
-                            },
-                    )
-                }
-            }
-            val downloaded = info?.detail?.split(',')?.mapNotNull(String::toIntOrNull)?.toSet()
-            if (info != null && downloaded != settings.btsearchMncs) {
-                Spacer(Modifier.height(8.dp))
-                Text("Zmieniono operatorów — pobierz bazę ponownie, aby to zastosować.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.poor)
-            }
-        }
-    }
-
-    Spacer(Modifier.height(18.dp))
-    Label("Automatyczna aktualizacja")
-    Segmented(
-        options = Settings.DB_REFRESH_OPTIONS,
-        selected = settings.dbRefreshDays,
-        onSelect = { days -> onChange { it.copy(dbRefreshDays = days) } },
-    )
-    Spacer(Modifier.height(8.dp))
-    ToggleRow("Tylko przez Wi-Fi", "Nie zużywa danych komórkowych; pobiera też tylko przy niewyczerpanej baterii", settings.dbWifiOnly) { on ->
-        onChange { it.copy(dbWifiOnly = on) }
-    }
-
-    Spacer(Modifier.height(14.dp))
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Btmap.colors.cardRaised)
-            .padding(14.dp),
-    ) {
-        Column {
-            when (val st = state) {
-                is ImportState.Running -> {
-                    Text("Pobieram ${st.source.label}…", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(50)),
-                        color = Btmap.colors.accent,
-                        trackColor = Btmap.colors.meterTrack,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "${formatBytes(st.bytes)} · ${formatCount(st.cells)} komórek zapisanych",
-                        style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
-                    )
-                }
-                else -> {
-                    if (info != null) {
-                        StatRow("Zaktualizowano", SimpleDateFormat("d.MM.yyyy HH:mm", Locale.getDefault()).format(Date(info.updatedAtMillis)))
-                        StatRow("Stacje", formatCount(info.sites))
-                        StatRow("Komórki", formatCount(info.cells))
-                    } else {
-                        Text("Baza nie została jeszcze pobrana.", style = MaterialTheme.typography.bodyMedium, color = Btmap.colors.muted)
+                            }
+                        }
                     }
-                    if (st is ImportState.Failed && st.source == settings.database) {
-                        Spacer(Modifier.height(6.dp))
-                        Text("Ostatnie pobieranie nie powiodło się: ${st.message}", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.bad)
-                    }
-                    if (info != null && info.cells == 0 && settings.database == StationSource.BTMAP) {
-                        Spacer(Modifier.height(6.dp))
-                        Text("W BTMap nie ma jeszcze stacji spoza UKE.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
-                    }
+                    Spacer(Modifier.height(10.dp))
+                    Hint("NetWorkS! to wspólna sieć T-Mobile i Orange; jej komórki trafiają też do tych operatorów.")
                 }
             }
         }
-    }
 
-    Spacer(Modifier.height(12.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (state is ImportState.Running) {
-            ActionButton("Anuluj", danger = true) { DatabaseWorker.cancel(context) }
-        } else {
-            ActionButton(if (info == null) "Pobierz teraz" else "Aktualizuj teraz", primary = true) {
-                DatabaseWorker.runNow(context, settings)
+        // ---- Schedule ----
+        SectionLabel("Aktualizacja", 4)
+        Card(Modifier.enterAnimation(4)) {
+            Segmented(
+                options = Settings.DB_REFRESH_OPTIONS.map { (d, l) -> d to l.replace("Co ", "") },
+                selected = settings.dbRefreshDays,
+                onSelect = { days -> onChange { it.copy(dbRefreshDays = days) } },
+            )
+            Spacer(Modifier.height(6.dp))
+            ToggleRow("Tylko przez Wi-Fi", "Bez zużywania danych komórkowych", settings.dbWifiOnly) { on ->
+                onChange { it.copy(dbWifiOnly = on) }
             }
-            ActionButton("Usuń bazę", enabled = info != null, danger = true) { confirmDelete = true }
         }
-    }
-    if (settings.dbWifiOnly && state !is ImportState.Running) {
-        Spacer(Modifier.height(6.dp))
-        Hint("Pobieranie ruszy, gdy telefon będzie połączony z Wi-Fi.")
+
+        if (info != null && running == null) {
+            Row(Modifier.fillMaxWidth().enterAnimation(5), horizontalArrangement = Arrangement.Center) {
+                TextButton(onClick = { confirmDelete = true }) {
+                    Text("Usuń pobraną bazę", color = Btmap.colors.bad, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
     }
 
     if (confirmDelete) {
@@ -377,13 +449,192 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
     }
 }
 
+/** One row per operator: done (with its cell count), downloading (with a bar), queued or failed. */
+@Composable
+private fun OperatorProgressList(ops: List<OperatorProgress>) {
+    val colors = Btmap.colors
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        ops.forEach { op ->
+            val brand = Operators.byPlmn(Plmn("260", "%02d".format(op.mnc)))?.let { colors.brand(Color(it.color)) } ?: colors.accent
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(brand))
+                    Spacer(Modifier.width(10.dp))
+                    Text(op.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Crossfade(op.status, label = "opStatus") { status ->
+                        when (status) {
+                            OperatorProgress.Status.DONE -> Text("✓ ${formatCount(op.cells)} komórek", style = MaterialTheme.typography.bodySmall, color = colors.good)
+                            OperatorProgress.Status.RUNNING -> Text(
+                                if (op.total > 0) "${(100 * op.done / op.total)}%" else "łączę…",
+                                style = MaterialTheme.typography.bodySmall, color = colors.accent, fontWeight = FontWeight.SemiBold,
+                            )
+                            OperatorProgress.Status.PENDING -> Text("w kolejce", style = MaterialTheme.typography.bodySmall, color = colors.faint)
+                            OperatorProgress.Status.FAILED -> Text("błąd", style = MaterialTheme.typography.bodySmall, color = colors.bad)
+                        }
+                    }
+                }
+                if (op.status == OperatorProgress.Status.RUNNING) {
+                    Spacer(Modifier.height(6.dp))
+                    Meter(if (op.total > 0) op.done.toFloat() / op.total else 0.02f, brand, Modifier.fillMaxWidth(), height = 6.dp)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "${formatCount(op.done)} / ${if (op.total > 0) formatCount(op.total) else "?"} stacji · ${formatCount(op.cells)} komórek",
+                        style = MaterialTheme.typography.labelSmall, color = colors.muted,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** "Waiting for the server" line with a live countdown. */
+@Composable
+private fun RateLimitCountdown(until: Long) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(until) {
+        while (now < until) {
+            kotlinx.coroutines.delay(1_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    val left = ((until - now) / 1000).coerceAtLeast(0)
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "BTSearch ogranicza liczbę zapytań — wznowię za %d:%02d".format(left / 60, left % 60),
+        style = MaterialTheme.typography.bodySmall, color = Btmap.colors.poor,
+    )
+}
+
+@Composable
+private fun SectionLabel(text: String, index: Int) {
+    Text(
+        text.uppercase(), style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted,
+        modifier = Modifier.padding(start = 6.dp, top = 4.dp).enterAnimation(index),
+    )
+}
+
+@Composable
+private fun StatusDot(color: Color, pulsing: Boolean) {
+    PulseDot(color, active = pulsing)
+}
+
+@Composable
+private fun StatTile(label: String, value: String, modifier: Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Btmap.colors.cardRaised)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** Selectable card with a radio mark, for picking the data source. */
+@Composable
+private fun SourceCard(title: String, subtitle: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val colors = Btmap.colors
+    val interaction = remember { MutableInteractionSource() }
+    val border by animateColorAsState(if (selected) colors.accent else colors.divider, tween(250), label = "srcBorder")
+    val bg by animateColorAsState(if (selected) colors.accent.copy(alpha = 0.10f) else colors.card, tween(250), label = "srcBg")
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier
+            .pressScale(interaction)
+            .clip(shape)
+            .background(bg)
+            .border(if (selected) 1.5.dp else 1.dp, border, shape)
+            .clickable(interaction, LocalIndication.current, onClick = onClick)
+            .padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            RadioMark(selected)
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = colors.muted, minLines = 2)
+    }
+}
+
+@Composable
+private fun RadioMark(selected: Boolean) {
+    val color by animateColorAsState(if (selected) Btmap.colors.accent else Btmap.colors.faint, tween(250), label = "radio")
+    val inner by animateFloatAsState(if (selected) 1f else 0f, tween(250), label = "radioInner")
+    Canvas(Modifier.size(20.dp)) {
+        drawCircle(color, radius = size.minDimension / 2 - 1.dp.toPx(), style = Stroke(2.dp.toPx()))
+        if (inner > 0f) drawCircle(color, radius = (size.minDimension / 2 - 5.dp.toPx()) * inner)
+    }
+}
+
+/** Operator toggle with its brand colour. */
+@Composable
+private fun OperatorChip(op: DbOperator, selected: Boolean, onClick: () -> Unit) {
+    val colors = Btmap.colors
+    val brand = Operators.byPlmn(Plmn("260", "%02d".format(op.mnc)))?.let { colors.brand(Color(it.color)) } ?: colors.accent
+    val interaction = remember { MutableInteractionSource() }
+    val bg by animateColorAsState(if (selected) brand.copy(alpha = 0.16f) else Color.Transparent, tween(250), label = "opBg")
+    val border by animateColorAsState(if (selected) brand.copy(alpha = 0.8f) else colors.divider, tween(250), label = "opBorder")
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier
+            .pressScale(interaction)
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, border, shape)
+            .clickable(interaction, LocalIndication.current, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(RoundedCornerShape(50)).background(if (selected) brand else colors.faint))
+        Spacer(Modifier.width(8.dp))
+        Text(op.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = if (selected) MaterialTheme.colorScheme.onSurface else colors.muted)
+    }
+}
+
+@Composable
+private fun WideButton(text: String, primary: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
+    val colors = Btmap.colors
+    val interaction = remember { MutableInteractionSource() }
+    val tint = if (danger) colors.bad else if (primary) colors.accent else MaterialTheme.colorScheme.onSurface
+    Text(
+        text,
+        Modifier
+            .fillMaxWidth()
+            .pressScale(interaction)
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (primary) colors.accent else tint.copy(alpha = 0.10f))
+            .clickable(interaction, LocalIndication.current, onClick = onClick)
+            .padding(vertical = 14.dp),
+        color = if (primary) (if (colors.isDark) Color(0xFF00281E) else Color.White) else tint,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+    )
+}
+
+private fun relativeTime(millis: Long): String {
+    val minutes = (System.currentTimeMillis() - millis) / 60_000
+    return when {
+        minutes < 1 -> "przed chwilą"
+        minutes < 60 -> "$minutes min temu"
+        minutes < 24 * 60 -> "${minutes / 60} godz. temu"
+        minutes < 48 * 60 -> "wczoraj"
+        else -> "${minutes / (24 * 60)} dni temu"
+    }
+}
+
+private fun relativeFuture(millis: Long): String {
+    val hours = (millis - System.currentTimeMillis()) / 3_600_000
+    return when {
+        hours <= 0 -> "wkrótce"
+        hours < 24 -> "za $hours godz."
+        else -> "za ${(hours + 12) / 24} dni"
+    }
+}
+
 private fun formatCount(n: Int): String = "%,d".format(Locale("pl"), n).replace('\u00A0', ' ')
 
-private fun formatBytes(b: Long): String = when {
-    b >= 1_000_000 -> "%.1f MB".format(b / 1_000_000.0)
-    b >= 1_000 -> "${b / 1_000} kB"
-    else -> "$b B"
-}
 
 @Composable
 private fun AppearancePage(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {

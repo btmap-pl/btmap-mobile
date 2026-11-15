@@ -20,10 +20,31 @@ import pl.btmap.core.radio.Bands
 import pl.btmap.core.radio.Operators
 import java.util.Locale
 
+/** Download state of one operator (BTSearch). */
+data class OperatorProgress(
+    val mnc: Int,
+    val name: String,
+    val status: Status,
+    val done: Int = 0,
+    val total: Int = 0,
+    val cells: Int = 0,
+) {
+    enum class Status { PENDING, RUNNING, DONE, FAILED }
+}
+
 /** State of the database download, for the settings screen. */
 sealed interface ImportState {
     data object Idle : ImportState
-    data class Running(val source: StationSource, val bytes: Long, val cells: Int) : ImportState
+    data class Running(
+        val source: StationSource,
+        val done: Int,
+        val total: Int,
+        val cells: Int,
+        /** Waiting for the server's rate limit until this time. */
+        val waitingUntil: Long? = null,
+        /** BTSearch: per-operator progress, in download order. */
+        val operators: List<OperatorProgress> = emptyList(),
+    ) : ImportState
     data class Failed(val source: StationSource, val message: String, val atMillis: Long) : ImportState
 }
 
@@ -59,7 +80,10 @@ class StationRepository(context: Context) {
         val site = runCatching {
             db.findNode(source, key.plmn.mcc.toInt(), key.plmn.mnc.toInt(), key.rat, key.nodeId)
         }.getOrNull() ?: return null
-        val bands = site.bands.ifEmpty {
+        // Stored labels are "L:800" / "N:3500" (BTSearch) or plain "800" (BTMap permits).
+        val prefix = "${key.rat.name[0]}:"
+        val stored = site.bands.filter { !it.contains(':') || it.startsWith(prefix) }.map { it.substringAfter(':') }.distinct()
+        val bands = stored.ifEmpty {
             site.channels.mapNotNull { ch -> (if (key.rat == Rat.NR) Bands.nr(ch) else Bands.lte(ch))?.label }
                 .distinct()
                 .sortedBy { it.toIntOrNull() ?: Int.MAX_VALUE }
@@ -75,56 +99,112 @@ class StationRepository(context: Context) {
             operators = listOfNotNull(Operators.byPlmn(key.plmn)?.btmapName),
             bands = bands,
             nodeLinked = true,
-            // BTMap stations open on btmap.pl; BTSearch has no public station link, so a map pin.
-            url = if (source == StationSource.BTMAP) null else geo,
+            // BTMap stations open on btmap.pl, BTSearch ones on their station page.
+            url = when (source) {
+                StationSource.BTMAP -> null
+                StationSource.BTSEARCH -> site.externalId?.removePrefix("btsearch:")?.let { "https://btsearch.pl/stations/$it" } ?: geo
+            },
         )
     }
 
     /**
-     * Downloads [source] and replaces its data. Retries server errors (BTSearch often times out)
-     * with growing pauses; the old data stays usable until a download completes.
+     * Downloads [source]. BTSearch goes operator by operator ([preferredMncs] first, e.g. the SIM
+     * cards' networks), and every finished operator is saved and usable right away; operators no
+     * longer selected are removed. The old data of an operator stays until its new data is complete.
      */
-    suspend fun download(source: StationSource, apiBase: String, btsearchMncs: Set<Int>): Result<SourceInfo> =
+    suspend fun download(source: StationSource, apiBase: String, btsearchMncs: Set<Int>, preferredMncs: List<Int> = emptyList()): Result<SourceInfo> =
         importLock.withLock {
             withContext(Dispatchers.IO) {
-                val detail = if (source == StationSource.BTSEARCH) btsearchMncs.sorted().joinToString(",") else null
-                var lastError: Throwable? = null
-                for (attempt in 0 until ATTEMPTS) {
-                    if (attempt > 0) delay(RETRY_DELAYS_MS[attempt - 1])
-                    _state.value = ImportState.Running(source, 0, 0)
-                    val ctx = currentCoroutineContext()
-                    val progress = ImportProgress { bytes, cells -> _state.value = ImportState.Running(source, bytes, cells) }
-                    val result = runCatching {
-                        db.replace(source, detail) { writer ->
-                            when (source) {
-                                StationSource.BTSEARCH -> BtsearchImporter.import(writer, btsearchMncs, progress) { !ctx.isActive }
-                                StationSource.BTMAP -> BtmapImporter.import(writer, apiBase, progress) { !ctx.isActive }
-                            }
+                val ctx = currentCoroutineContext()
+                val cancelled = { !ctx.isActive }
+                val result = runCatching {
+                    when (source) {
+                        StationSource.BTMAP -> {
+                            _state.value = ImportState.Running(source, 0, 0, 0)
+                            val progress = progressFor(source)
+                            db.replace(source, null) { writer -> BtmapImporter.import(writer, apiBase, progress, cancelled) }
                         }
+                        StationSource.BTSEARCH -> downloadBtsearch(btsearchMncs, preferredMncs, cancelled)
                     }
-                    if (result.isSuccess) {
-                        _state.value = ImportState.Idle
-                        if (_source.value == source) _version.update { it + 1 }
-                        return@withContext result
-                    }
-                    lastError = result.exceptionOrNull()
-                    if (!ctx.isActive) break
-                    // Client errors and empty files will not get better by retrying.
-                    if (lastError is ImportException && lastError.message?.contains("Serwer") != true) break
                 }
-                val message = lastError?.message ?: lastError?.javaClass?.simpleName ?: "Błąd"
-                _state.value = ImportState.Failed(source, message, System.currentTimeMillis())
-                Result.failure(lastError ?: ImportException(message))
+                result.onSuccess {
+                    _state.value = ImportState.Idle
+                    if (_source.value == source) _version.update { it + 1 }
+                }.onFailure { e ->
+                    val message = if (!ctx.isActive) "Przerwano" else e.message ?: e.javaClass.simpleName
+                    _state.value = ImportState.Failed(source, message, System.currentTimeMillis())
+                    // Operators finished before the failure are already saved.
+                    if (_source.value == source) _version.update { it + 1 }
+                }
+                result
             }
         }
+
+    private fun downloadBtsearch(mncs: Set<Int>, preferred: List<Int>, cancelled: () -> Boolean): SourceInfo {
+        val source = StationSource.BTSEARCH
+        val order = DbOperators.ALL.filter { it.mnc in mncs }
+            .sortedBy { op -> preferred.indexOf(op.mnc).let { if (it < 0) Int.MAX_VALUE else it } }
+        if (order.isEmpty()) throw ImportException("Nie wybrano operatorów")
+        var ops = order.map { OperatorProgress(it.mnc, it.name, OperatorProgress.Status.PENDING) }
+        fun publish(waiting: Long? = (state.value as? ImportState.Running)?.waitingUntil) {
+            val total = ops.sumOf { it.total }
+            _state.value = ImportState.Running(source, ops.sumOf { it.done }, total, ops.sumOf { it.cells }, waiting, ops)
+        }
+        publish(null)
+
+        val bandLabels = runCatching { BtsearchImporter.bandLabels(cancelled) }.getOrDefault(emptyMap())
+        val present = db.cellsPerOperator(source).keys.toMutableSet()
+        // Drop operators the user no longer wants.
+        (present - mncs).forEach { mnc -> db.replaceOperator(source, mnc, (present - mnc).sorted().joinToString(",")) { } }
+        present.retainAll(mncs)
+
+        var info: SourceInfo? = null
+        for ((index, op) in order.withIndex()) {
+            ops = ops.mapIndexed { i, p -> if (i == index) p.copy(status = OperatorProgress.Status.RUNNING) else p }
+            publish()
+            val progress = object : ImportProgress {
+                override fun update(done: Int, total: Int, cells: Int) {
+                    ops = ops.mapIndexed { i, p -> if (i == index) p.copy(done = done, total = total, cells = cells) else p }
+                    publish()
+                }
+
+                override fun waiting(untilMillis: Long?) = publish(untilMillis)
+            }
+            try {
+                val detail = (present + op.mnc).sorted().joinToString(",")
+                info = db.replaceOperator(source, op.mnc, detail) { writer ->
+                    BtsearchImporter.importOperator(writer, op, bandLabels, progress, cancelled)
+                }
+                present += op.mnc
+                ops = ops.mapIndexed { i, p -> if (i == index) p.copy(status = OperatorProgress.Status.DONE) else p }
+                publish(null)
+                // Make the finished operator usable for lookups straight away.
+                if (_source.value == source) _version.update { it + 1 }
+            } catch (e: Exception) {
+                ops = ops.mapIndexed { i, p -> if (i == index) p.copy(status = OperatorProgress.Status.FAILED) else p }
+                publish(null)
+                throw e
+            }
+        }
+        return info ?: db.info(source) ?: throw ImportException("Brak danych")
+    }
+
+    private fun progressFor(source: StationSource) = object : ImportProgress {
+        override fun update(done: Int, total: Int, cells: Int) {
+            _state.value = ImportState.Running(source, done, total, cells)
+        }
+
+        override fun waiting(untilMillis: Long?) {
+            _state.update { if (it is ImportState.Running) it.copy(waitingUntil = untilMillis) else it }
+        }
+    }
+
+    /** Cells per operator in [source], for the settings screen. */
+    fun cellsPerOperator(source: StationSource): Map<Int, Int> = runCatching { db.cellsPerOperator(source) }.getOrDefault(emptyMap())
 
     fun clear(source: StationSource) {
         runBlocking(Dispatchers.IO) { importLock.withLock { db.clear(source) } }
         if (_source.value == source) _version.update { it + 1 }
     }
 
-    private companion object {
-        const val ATTEMPTS = 3
-        val RETRY_DELAYS_MS = longArrayOf(30_000, 120_000)
-    }
 }

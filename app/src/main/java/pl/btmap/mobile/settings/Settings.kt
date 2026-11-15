@@ -62,7 +62,9 @@ class SettingsStore(context: Context) {
             notificationOtherSim = prefs.getBoolean("notificationOtherSim", d.notificationOtherSim),
             showNeighbours = prefs.getBoolean("showNeighbours", d.showNeighbours),
             database = runCatching { StationSource.valueOf(prefs.getString("database", null)!!) }.getOrDefault(d.database),
-            btsearchMncs = prefs.getStringSet("btsearchMncs", null)?.mapNotNull(String::toIntOrNull)?.toSet() ?: d.btsearchMncs,
+            // Operators no longer offered (Nordisk, PKP PLK, PGE Systemy) are dropped from old settings.
+            btsearchMncs = prefs.getStringSet("btsearchMncs", null)?.mapNotNull(String::toIntOrNull)
+                ?.filter { mnc -> DbOperators.ALL.any { it.mnc == mnc } }?.toSet()?.ifEmpty { null } ?: d.btsearchMncs,
             dbRefreshDays = prefs.getInt("dbRefreshDays", d.dbRefreshDays),
             dbWifiOnly = prefs.getBoolean("dbWifiOnly", d.dbWifiOnly),
         )
