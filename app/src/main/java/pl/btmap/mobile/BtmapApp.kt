@@ -10,11 +10,14 @@ import kotlinx.coroutines.launch
 import pl.btmap.core.BtmapCore
 import kotlinx.coroutines.withContext
 import pl.btmap.core.stations.StationSource
+import kotlinx.coroutines.flow.combine
 import pl.btmap.mobile.settings.SettingsStore
+import pl.btmap.mobile.tools.ShizukuBridge
 import pl.btmap.mobile.work.DatabaseWorker
 
 class BtmapApp : Application() {
     val settings: SettingsStore by lazy { SettingsStore(this) }
+    val shizuku: ShizukuBridge by lazy { ShizukuBridge(this) }
     val core: BtmapCore by lazy {
         BtmapCore(this, settings.settings.value.apiBaseUrl).also(::applySettings)
     }
@@ -42,6 +45,11 @@ class BtmapApp : Application() {
                 }
                 if (needed) DatabaseWorker.runNow(this@BtmapApp, s)
             }
+        }
+        // With Shizuku switched on and authorised, unlock modem access (DUMP) without a computer.
+        scope.launch {
+            combine(settings.settings.map { it.shizukuEnabled }.distinctUntilChanged(), shizuku.status) { on, st -> on to st }
+                .collect { (on, st) -> if (on && st == ShizukuBridge.Status.READY) shizuku.grantDump() }
         }
         scope.launch {
             settings.settings.map { Triple(it.dbRefreshDays, it.dbWifiOnly, it.database) }.distinctUntilChanged().collect {

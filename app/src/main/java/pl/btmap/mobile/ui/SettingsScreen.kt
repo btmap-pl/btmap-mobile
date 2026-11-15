@@ -18,6 +18,8 @@ import pl.btmap.core.stations.OperatorProgress
 import androidx.compose.animation.Crossfade
 import pl.btmap.core.stations.StationSource
 import pl.btmap.mobile.work.DatabaseWorker
+import pl.btmap.mobile.tools.ShizukuBridge
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.scaleIn
@@ -29,6 +31,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Place
@@ -110,6 +113,7 @@ private enum class SettingsPage(val title: String) {
     MEASUREMENTS("Pomiary"),
     NOTIFICATION("Powiadomienie"),
     DATA("Dane"),
+    TOOLS("Narzędzia"),
     ABOUT("O aplikacji"),
 }
 
@@ -166,6 +170,7 @@ fun SettingsScreen(
                         }
                         SettingsPage.NOTIFICATION -> NotificationPage(settings, onChange)
                         SettingsPage.DATA -> DataSettings(core, logSize)
+                        SettingsPage.TOOLS -> ToolsPage(settings, onChange)
                         SettingsPage.ABOUT -> About()
                     }
                 }
@@ -199,6 +204,7 @@ private fun SettingsMenu(settings: Settings, core: BtmapCore, logSize: Int, onOp
         Triple(SettingsPage.MEASUREMENTS, "Odświeżanie co ${settings.liveRefreshMs / 1000} s · w tle oszczędnie") { c -> LiveIcon(c) },
         Triple(SettingsPage.NOTIFICATION, "Pasma, $notification") { c -> Icon(Icons.Outlined.Notifications, null, tint = c) },
         Triple(SettingsPage.DATA, "$logSize w logu · ${core.dictionary.size} nauczonych") { c -> LogIcon(c) },
+        Triple(SettingsPage.TOOLS, toolsSummary(settings)) { c -> Icon(Icons.Outlined.Build, null, tint = c) },
         Triple(SettingsPage.ABOUT, "Wersja ${BuildConfig.VERSION_NAME} · MIT") { c -> Icon(Icons.Outlined.Info, null, tint = c) },
     )
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -649,6 +655,110 @@ private fun relativeFuture(millis: Long): String {
 
 private fun formatCount(n: Int): String = "%,d".format(Locale("pl"), n).replace('\u00A0', ' ')
 
+
+@Composable
+private fun toolsSummary(settings: Settings): String {
+    val status by (LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp).shizuku.status.collectAsStateWithLifecycle()
+    return "Shizuku: " + when {
+        status == ShizukuBridge.Status.READY && settings.shizukuEnabled -> "włączone"
+        status == ShizukuBridge.Status.READY -> "połączone, wyłączone"
+        status == ShizukuBridge.Status.NO_PERMISSION -> "wymaga połączenia"
+        status == ShizukuBridge.Status.NOT_RUNNING -> "nie uruchomione"
+        else -> "nie zainstalowane"
+    }
+}
+
+@Composable
+private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {
+    val context = LocalContext.current
+    val shizuku = (context.applicationContext as pl.btmap.mobile.BtmapApp).shizuku
+    val status by shizuku.status.collectAsStateWithLifecycle()
+    var hasDump by remember { mutableStateOf(shizuku.hasDump) }
+    // Shizuku is started and authorised in its own app; pick up changes while this page is open.
+    LaunchedEffect(Unit) {
+        while (true) {
+            shizuku.refresh()
+            hasDump = shizuku.hasDump
+            kotlinx.coroutines.delay(1_500)
+        }
+    }
+    val ready = status == ShizukuBridge.Status.READY
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(pl.btmap.mobile.R.drawable.shizuku_logo),
+            contentDescription = "Shizuku",
+            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Shizuku", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PulseDot(
+                    when (status) {
+                        ShizukuBridge.Status.READY -> Btmap.colors.good
+                        ShizukuBridge.Status.NO_PERMISSION -> Btmap.colors.poor
+                        else -> Btmap.colors.faint
+                    },
+                    active = status == ShizukuBridge.Status.NO_PERMISSION,
+                )
+                Text(
+                    when (status) {
+                        ShizukuBridge.Status.READY -> "Połączono z BTMap"
+                        ShizukuBridge.Status.NO_PERMISSION -> "Działa — BTMap nie jest jeszcze podłączony"
+                        ShizukuBridge.Status.NOT_RUNNING -> "Zainstalowane, usługa nie działa"
+                        ShizukuBridge.Status.NOT_INSTALLED -> "Nie zainstalowane"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (ready) Btmap.colors.good else Btmap.colors.muted,
+                )
+            }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    Hint("Shizuku pozwala BTMap korzystać z uprawnień powłoki bez roota i bez komputera — np. odczytywać pasma i agregację prosto z modemu.")
+
+    Spacer(Modifier.height(14.dp))
+    when (status) {
+        ShizukuBridge.Status.NOT_INSTALLED -> WideButton("Zainstaluj Shizuku", primary = true) {
+            val market = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse("market://details?id=${ShizukuBridge.SHIZUKU_PACKAGE}"))
+            runCatching { context.startActivity(market) }.onFailure {
+                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/download/")))
+            }
+        }
+        ShizukuBridge.Status.NOT_RUNNING -> {
+            WideButton("Otwórz Shizuku", primary = true) { shizuku.openShizuku(context) }
+            Spacer(Modifier.height(6.dp))
+            Hint("Uruchom usługę w aplikacji Shizuku (przez debugowanie bezprzewodowe), a potem wróć tutaj.")
+        }
+        ShizukuBridge.Status.NO_PERMISSION -> {
+            WideButton("Podłącz BTMap w Shizuku", primary = true) { shizuku.requestPermission() }
+            Spacer(Modifier.height(6.dp))
+            Hint("Shizuku zapyta, czy zezwolić BTMap. Możesz to też zrobić w Shizuku → Aplikacje autoryzowane.")
+        }
+        ShizukuBridge.Status.READY -> Unit
+    }
+
+    Spacer(Modifier.height(10.dp))
+    // Unlocks only once BTMap is authorised in Shizuku.
+    Box(Modifier.graphicsLayer { alpha = if (ready) 1f else 0.45f }) {
+        ToggleRow(
+            "Włącz Shizuku",
+            if (ready) "BTMap użyje Shizuku do odczytu danych z modemu" else "Odblokuje się po podłączeniu BTMap w Shizuku",
+            settings.shizukuEnabled && ready,
+        ) { on -> if (ready) onChange { it.copy(shizukuEnabled = on) } }
+    }
+    if (ready && settings.shizukuEnabled) {
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PulseDot(if (hasDump) Btmap.colors.good else Btmap.colors.poor, active = !hasDump)
+            Text(
+                if (hasDump) "Pasma z modemu: aktywne" else "Włączam dostęp do modemu…",
+                style = MaterialTheme.typography.bodySmall, color = if (hasDump) Btmap.colors.good else Btmap.colors.muted,
+            )
+        }
+    }
+}
 
 @Composable
 private fun AppearancePage(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {

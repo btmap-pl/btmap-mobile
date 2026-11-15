@@ -29,6 +29,8 @@ data class Settings(
     val dbRefreshDays: Int = 7,
     /** Download the database only on Wi-Fi (BTSearch is a large file). */
     val dbWifiOnly: Boolean = true,
+    /** Use Shizuku (once authorised there) to unlock modem access without a computer. */
+    val shizukuEnabled: Boolean = false,
 ) {
     companion object {
         val REFRESH_OPTIONS = listOf(1_000L, 2_000L, 5_000L)
@@ -67,6 +69,7 @@ class SettingsStore(context: Context) {
                 ?.filter { mnc -> DbOperators.ALL.any { it.mnc == mnc } }?.toSet()?.ifEmpty { null } ?: d.btsearchMncs,
             dbRefreshDays = prefs.getInt("dbRefreshDays", d.dbRefreshDays),
             dbWifiOnly = prefs.getBoolean("dbWifiOnly", d.dbWifiOnly),
+            shizukuEnabled = prefs.getBoolean("shizukuEnabled", d.shizukuEnabled),
         )
     }
 
@@ -83,6 +86,7 @@ class SettingsStore(context: Context) {
             .putStringSet("btsearchMncs", s.btsearchMncs.map(Int::toString).toSet())
             .putInt("dbRefreshDays", s.dbRefreshDays)
             .putBoolean("dbWifiOnly", s.dbWifiOnly)
+            .putBoolean("shizukuEnabled", s.shizukuEnabled)
             .apply()
     }
 

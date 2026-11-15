@@ -17,3 +17,9 @@ adb install -r -g app/build/outputs/apk/debug/app-debug.apk
 
 Adres API ustawia `btmap.apiBaseUrl` w `gradle.properties` (domyślnie lokalny serwer btmapv2 na
 porcie 3001). Z telefonem na USB: `adb reverse tcp:3001 tcp:3001`.
+
+## Licencje zewnętrzne
+
+- Logo Shizuku (`app/src/main/res/drawable-nodpi/shizuku_logo.png`) pochodzi z
+  [RikkaApps/Shizuku](https://github.com/RikkaApps/Shizuku) (Apache-2.0) i służy tylko do oznaczenia
+  integracji z Shizuku.
