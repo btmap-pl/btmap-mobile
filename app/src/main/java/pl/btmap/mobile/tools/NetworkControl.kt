@@ -16,7 +16,7 @@ enum class NetworkModePreset(val label: String, val description: String, val mas
     AUTO("Auto", "Wszystko, co obsługuje telefon", -1),
     NR_LTE("5G + 4G", "Bez 3G i 2G", Types.LTE or Types.LTE_CA or Types.NR),
     LTE("Tylko 4G", "Bez 5G, 3G i 2G", Types.LTE or Types.LTE_CA),
-    NR("Tylko 5G", "Wymaga 5G SA u operatora", Types.NR),
+    NR("Tylko 5G (SA)", "Wymaga 5G SA w tym miejscu", Types.NR),
     NO_NR("4G + 3G + 2G", "Bez 5G", Types.LTE or Types.LTE_CA or Types.UMTS_ALL or Types.GSM_ALL),
     UMTS("Tylko 3G", "3G i 2G", Types.UMTS_ALL or Types.GSM_ALL),
     GSM("Tylko 2G", "GSM / EDGE", Types.GSM_ALL);
@@ -121,11 +121,56 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
     /** Sets the network mode of [slot]. Returns null on success or an error message. */
     suspend fun setMode(slot: Int, preset: NetworkModePreset): String? {
         val original = originalMask(slot) ?: return "Nie udało się odczytać ustawień sieci"
+        // Leaving 5G SA on MediaTek: give the modem its LTE bands back first.
+        restoreSaBands(slot)
+        if (preset == NetworkModePreset.NR && MtkBandControl.supported(slot) != null) {
+            forceSa(slot)?.let { return it }
+            prefs.edit().putString("mode_$slot", preset.name).apply()
+            return null
+        }
         val mask = if (preset == NetworkModePreset.AUTO) original else preset.mask
         if (!setMask(slot, mask)) return "Telefon odrzucił zmianę trybu sieci"
         prefs.edit().putString("mode_$slot", preset.name).apply()
         if (preset == NetworkModePreset.AUTO) prefs.edit().remove("original_$slot").apply()
         return null
+    }
+
+    /**
+     * 5G SA on MediaTek. The RIL turns an "NR only" request into LTE+NR, so instead LTE is kept out
+     * at the band level: only 4G/5G are allowed and the modem may use just one LTE band nobody uses
+     * in Poland (B66), which leaves 5G SA as the only way in. If the SIM does not register on NR,
+     * everything is put back and the reason returned.
+     */
+    private suspend fun forceSa(slot: Int): String? {
+        val supported = MtkBandControl.supported(slot) ?: return "Modem nie podał obsługiwanych pasm"
+        val current = MtkBandControl.current(slot) ?: supported
+        val unusedLte = (supported.lteBands - BandLock.POLISH_LTE.toSet()).maxOrNull() ?: return "Modem nie ma pasma LTE do wyłączenia"
+        val previousMask = currentMask(slot) ?: return "Nie udało się odczytać ustawień sieci"
+        prefs.edit().putString("sa_lte_$slot", current.lte).putLong("sa_mask_$slot", previousMask).apply()
+
+        if (!setMask(slot, NetworkModePreset.NR_LTE.mask)) return "Telefon odrzucił zmianę trybu sieci"
+        val saLte = MtkBandControl.mask(setOf(unusedLte), supported.lte.length)
+        if (!MtkBandControl.write(slot, current.copy(lte = saLte))) {
+            restoreSaBands(slot)
+            return "Modem odrzucił ustawienie 5G SA"
+        }
+        val deadline = System.currentTimeMillis() + 40_000
+        while (System.currentTimeMillis() < deadline) {
+            delay(2_000)
+            val pcell = core.state.value.snapshot.sims.firstOrNull { it.slotIndex == slot }?.primary
+            if (pcell?.rat == Rat.NR) return null
+        }
+        restoreSaBands(slot)
+        return "W tym miejscu nie ma 5G SA operatora — przywrócono poprzedni tryb"
+    }
+
+    /** Undoes [forceSa] if it is active on [slot]. */
+    private suspend fun restoreSaBands(slot: Int) {
+        val lte = prefs.getString("sa_lte_$slot", null) ?: return
+        val mask = prefs.getLong("sa_mask_$slot", 0)
+        MtkBandControl.current(slot)?.let { MtkBandControl.write(slot, it.copy(lte = lte)) }
+        if (mask != 0L) setMask(slot, mask)
+        prefs.edit().remove("sa_lte_$slot").remove("sa_mask_$slot").putString("mode_$slot", NetworkModePreset.AUTO.name).apply()
     }
 
     fun mode(slot: Int): NetworkModePreset =

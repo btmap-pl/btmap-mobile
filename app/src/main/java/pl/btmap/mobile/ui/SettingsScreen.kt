@@ -852,16 +852,16 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
     var feedback by remember { mutableStateOf<BandFeedback?>(null) }
     var naming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<BandPreset?>(null) }
-    LaunchedEffect(feedback, busy) {
+    var modeBusy by remember { mutableStateOf(false) }
+    LaunchedEffect(feedback, busy, modeBusy) {
         // The "in progress" banner stays until the result replaces it.
-        if (feedback != null && !busy) {
+        if (feedback != null && !busy && !modeBusy) {
             kotlinx.coroutines.delay(5_000)
             feedback = null
         }
     }
 
     val support by network.bandLockSupport.collectAsStateWithLifecycle()
-    var modeBusy by remember { mutableStateOf(false) }
     var mode by remember(slot) { mutableStateOf(network.mode(slot)) }
 
     fun apply(target: pl.btmap.mobile.tools.BandSelection, label: String) {
@@ -912,6 +912,9 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
     fun applyMode(preset: pl.btmap.mobile.tools.NetworkModePreset) {
         val s = sim ?: return
         modeBusy = true
+        if (preset == pl.btmap.mobile.tools.NetworkModePreset.NR) {
+            feedback = BandFeedback(true, "Szukam 5G SA…", "SIM ${s.slotIndex + 1}: do 40 s. Jeśli go tu nie ma, przywrócę poprzedni tryb")
+        }
         scope.launch {
             val error = network.setMode(s.slotIndex, preset)
             val simLabel = "SIM ${s.slotIndex + 1} · " + Operators.displayName(s.registeredPlmn, s.networkOperatorName)
@@ -919,6 +922,7 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                 mode = preset
                 BandFeedback(true, "Tryb sieci: ${preset.label}", simLabel)
             } else BandFeedback(false, "Nie udało się zmienić trybu sieci", error)
+            reload++
             modeBusy = false
         }
     }
