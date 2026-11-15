@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.update
 import pl.btmap.core.location.GeoFix
 import pl.btmap.core.model.Cell
 import pl.btmap.core.model.CellIdentity
+import pl.btmap.core.model.CellRole
+import pl.btmap.core.model.CellSignal
 import pl.btmap.core.model.NetworkSnapshot
 
 /** One serving cell seen during the session (the "Log" screen). */
@@ -20,6 +22,14 @@ data class LogEntry(
     /** Where the cell was best heard, if a fix was available. */
     val bestFix: GeoFix?,
     val samples: Int,
+    /** Most recent measurement of the cell. */
+    val lastSignal: CellSignal,
+    val lastRole: CellRole,
+    val lastTaMeters: Int?,
+    /** Main power readings (dBm), oldest first, capped at [CellLog.HISTORY]. */
+    val history: List<Int>,
+    /** Where the phone was at the last sample. */
+    val lastFix: GeoFix?,
 )
 
 /**
@@ -43,7 +53,10 @@ class CellLog(private val maxEntries: Int = 5_000) {
                 val dbm = cell.signal.mainDbm
                 val prev = byKey[cell.key]
                 byKey[cell.key] = if (prev == null) {
-                    LogEntry(cell.key, slot, cell.identity, now, now, dbm, fix, 1)
+                    LogEntry(
+                        cell.key, slot, cell.identity, now, now, dbm, fix, 1,
+                        cell.signal, cell.role, cell.taDistanceMeters, listOfNotNull(dbm), fix,
+                    )
                 } else {
                     val better = dbm != null && (prev.bestDbm == null || dbm > prev.bestDbm)
                     prev.copy(
@@ -52,6 +65,11 @@ class CellLog(private val maxEntries: Int = 5_000) {
                         bestDbm = if (better) dbm else prev.bestDbm,
                         bestFix = if (better && fix != null) fix else prev.bestFix,
                         samples = prev.samples + 1,
+                        lastSignal = cell.signal,
+                        lastRole = cell.role,
+                        lastTaMeters = cell.taDistanceMeters ?: prev.lastTaMeters,
+                        history = if (dbm == null) prev.history else (prev.history + dbm).takeLast(HISTORY),
+                        lastFix = fix ?: prev.lastFix,
                     )
                 }
             }
@@ -59,7 +77,13 @@ class CellLog(private val maxEntries: Int = 5_000) {
         }
     }
 
+    fun entry(key: String): LogEntry? = _entries.value.firstOrNull { it.key == key }
+
     fun clear() {
         _entries.value = emptyList()
+    }
+
+    companion object {
+        const val HISTORY = 120
     }
 }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,13 +22,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,8 +87,8 @@ fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding
                 )
             }
         }
-        items(sims, key = { it.subscriptionId }) { sim ->
-            SimCard(sim, state, stationUrl, Modifier.animateItemPlacement())
+        itemsIndexed(sims, key = { _, sim -> sim.subscriptionId }) { index, sim ->
+            SimCard(sim, state, stationUrl, Modifier.animateItemPlacement().enterAnimation(index + 1))
         }
     }
 }
@@ -80,8 +97,8 @@ fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding
 private fun LocationStrip(state: LiveState) {
     val fix = state.fix
     Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(7.dp).clip(CircleShape).background(if (fix != null) Btmap.colors.good else Btmap.colors.faint))
-        Spacer(Modifier.width(8.dp))
+        PulseDot(if (fix != null) Btmap.colors.good else Btmap.colors.faint, active = fix == null)
+        Spacer(Modifier.width(4.dp))
         Text(
             if (fix == null) "Szukam lokalizacji…"
             else buildString {
@@ -123,6 +140,7 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
                 )
             }
             .border(1.dp, colors.divider, shape)
+            .animateContentSize(spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessLow))
             .padding(horizontal = 20.dp, vertical = 20.dp),
     ) {
         OperatorHeader(sim, brand)
@@ -143,8 +161,13 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
         ModeRow(sim)
         if (carriers.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                carriers.forEach { CarrierPill(it, brand) }
+            FlowRow(
+                Modifier.animateContentSize(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                carriers.forEachIndexed { i, c ->
+                    key(c.channel ?: -i, c.isPrimary) { CarrierPill(c, brand, Modifier.enterAnimation(i)) }
+                }
             }
         }
 
@@ -159,10 +182,9 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
         StationBlock(primary, state, stationUrl)
 
         val extra = carriers.filter { !it.isPrimary }
-        if (extra.isNotEmpty()) {
+        if (carriers.size > 1) {
             Spacer(Modifier.height(18.dp))
-            SectionTitle(if (extra.any { it.rat != primary.rat }) "Agregacja i 5G" else "Agregacja")
-            extra.forEach { CarrierRow(it, primary.rat, state) }
+            AggregationSection(carriers, primary.rat, brand)
         }
 
         val shown = extra.mapNotNull { it.cell }.toSet()
@@ -218,7 +240,15 @@ private fun Tag(text: String, color: Color = Btmap.colors.muted) {
 @Composable
 private fun ModeRow(sim: SimState) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-        Text(sim.mode.label, style = MaterialTheme.typography.headlineMedium, color = Btmap.colors.accent)
+        AnimatedContent(
+            targetState = sim.mode.label,
+            transitionSpec = {
+                (fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.85f)) togetherWith fadeOut(tween(150))
+            },
+            label = "mode",
+        ) { label ->
+            Text(label, style = MaterialTheme.typography.headlineMedium, color = Btmap.colors.accent)
+        }
         val total = sim.totalBandwidthKhz
         if (total > 0) {
             Spacer(Modifier.width(10.dp))
@@ -236,7 +266,7 @@ private fun ModeRow(sim: SimState) {
 }
 
 @Composable
-private fun CarrierPill(carrier: Carrier, brand: Color) {
+private fun CarrierPill(carrier: Carrier, brand: Color, modifier: Modifier = Modifier) {
     val band = carrier.band
     val label = buildString {
         append(if (carrier.rat == Rat.NR) "5G " else "")
@@ -249,7 +279,7 @@ private fun CarrierPill(carrier: Carrier, brand: Color) {
         else -> PillStyle.OUTLINED
     }
     val color = if (carrier.isPrimary) brand else if (carrier.source == CarrierSource.UNKNOWN) Btmap.colors.muted else MaterialTheme.colorScheme.onSurface
-    Pill(label, color, style = style) {
+    Pill(label, color, modifier = modifier, style = style) {
         band?.let {
             Text(" ${it.shortName}", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
         }
@@ -270,12 +300,14 @@ private fun SignalHero(cell: Cell) {
     val quality = powerQuality(value, cell.rat)
     Column {
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(value?.toString() ?: "—", style = MaterialTheme.typography.displaySmall, color = quality.color())
+            AnimatedNumber(value, MaterialTheme.typography.displaySmall, quality.color())
             Text(" dBm", style = MaterialTheme.typography.titleMedium, color = Btmap.colors.muted, modifier = Modifier.padding(bottom = 6.dp))
             Spacer(Modifier.weight(1f))
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(bottom = 4.dp)) {
                 Text(label, style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
-                Text(quality?.label ?: "", style = MaterialTheme.typography.labelLarge, color = quality.color())
+                Crossfade(quality, animationSpec = tween(350), label = "quality") { q ->
+                    Text(q?.label ?: "", style = MaterialTheme.typography.labelLarge, color = q.color())
+                }
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -358,12 +390,17 @@ private fun StationBlock(cell: Cell, state: LiveState, stationUrl: (Station) -> 
     }
     val fix = state.fix
     val dist = fix?.let { Geo.distanceMeters(it.lat, it.lng, station.lat, station.lng) }
+    val interaction = remember { MutableInteractionSource() }
     Row(
         Modifier
+            .enterAnimation()
+            .pressScale(interaction)
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Btmap.colors.accent.copy(alpha = 0.08f))
-            .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(stationUrl(station)))) }
+            .clickable(interaction, indication = LocalIndication.current) {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(stationUrl(station))))
+            }
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -394,27 +431,114 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun CarrierRow(carrier: Carrier, primaryRat: Rat, state: LiveState) {
+private fun AggregationSection(carriers: List<Carrier>, primaryRat: Rat, brand: Color) {
+    val total = carriers.sumOf { it.bandwidthKhz ?: 0 }
+    val title = buildString {
+        append(if (carriers.any { it.rat != primaryRat }) "Agregacja i 5G" else "Agregacja")
+        append(" · ${carriers.size} ")
+        append(if (carriers.size in 2..4) "pasma" else "pasm")
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        SectionTitle(title)
+        Spacer(Modifier.weight(1f))
+        if (total > 0) {
+            Text(
+                (if (total % 1000 == 0) "${total / 1000}" else "%.1f".format(total / 1000.0)) + " MHz",
+                style = MaterialTheme.typography.labelMedium, color = Btmap.colors.muted, modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+    }
+    BandwidthBar(carriers, brand)
+    Spacer(Modifier.height(10.dp))
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        carriers.forEachIndexed { index, carrier -> CarrierTile(carrier, index, primaryRat, brand) }
+    }
+}
+
+/** Proportional bar: each segment is one component carrier, sized by its bandwidth. */
+@Composable
+private fun BandwidthBar(carriers: List<Carrier>, brand: Color) {
+    val known = carriers.filter { (it.bandwidthKhz ?: 0) > 0 }
+    if (known.isEmpty()) return
+    Row(
+        Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(50)),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        known.forEachIndexed { i, c ->
+            val weight by animateFloatAsState(c.bandwidthKhz!!.toFloat(), tween(500), label = "bw")
+            Box(
+                Modifier
+                    .weight(weight)
+                    .fillMaxHeight()
+                    .background(carrierColor(c, i, brand)),
+            )
+        }
+    }
+}
+
+@Composable
+private fun carrierColor(carrier: Carrier, index: Int, brand: Color): Color = when {
+    carrier.isPrimary -> brand
+    carrier.source == CarrierSource.UNKNOWN -> Btmap.colors.faint
+    else -> brand.copy(alpha = (0.65f - index * 0.15f).coerceAtLeast(0.3f))
+}
+
+@Composable
+private fun CarrierTile(carrier: Carrier, index: Int, primaryRat: Rat, brand: Color) {
+    val id = carrier.identity
     val cell = carrier.cell
     val rat = carrier.rat
     val dbm = cell?.signal?.let { if (rat == Rat.NR) it.ssRsrp else it.rsrp }
     val q = powerQuality(dbm, rat)
-    ListRow(
-        badge = (if (rat == Rat.NR && primaryRat != Rat.NR) "5G " else "") + (carrier.band?.label ?: "?"),
-        badgeStyle = if (carrier.source == CarrierSource.UNKNOWN) PillStyle.DASHED else PillStyle.OUTLINED,
-        title = listOfNotNull(carrier.physicalId?.let { "PCI $it" }, cell?.identity?.nodeLabel).joinToString("  ").ifEmpty {
-            when (carrier.source) {
-                CarrierSource.UNKNOWN -> "Nieznana komórka"
-                CarrierSource.STATION -> "Pasmo wg stacji BTMap"
-                else -> "—"
+    val accent = carrierColor(carrier, index, brand)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Btmap.colors.cardRaised)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(width = 4.dp, height = 40.dp).clip(RoundedCornerShape(50)).background(accent))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.width(96.dp)) {
+            Text(
+                (if (rat == Rat.NR && primaryRat != Rat.NR) "5G " else "") + (carrier.band?.label ?: "?"),
+                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+            )
+            Text(
+                listOfNotNull(carrier.band?.shortName, carrier.bandwidthLabel?.let { "$it MHz" }).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted,
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Tag(if (carrier.isPrimary) "PCell" else if (rat != primaryRat) "NR" else "SCell${index}")
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    id?.nodeLabel ?: when (carrier.source) {
+                        CarrierSource.UNKNOWN -> "nieznana komórka"
+                        CarrierSource.STATION -> "pasmo wg BTMap"
+                        else -> ""
+                    },
+                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
+                    color = if (id?.nodeLabel == null) Btmap.colors.muted else MaterialTheme.colorScheme.onSurface,
+                )
             }
-        },
-        subtitle = cell?.let { state.stationOf(it)?.address },
-        channel = carrier.channel,
-        dbm = dbm,
-        quality = q,
-        trailing = carrier.bandwidthLabel?.let { "$it MHz" },
-    )
+            Text(
+                listOfNotNull(
+                    carrier.physicalId?.let { "PCI $it" },
+                    carrier.channel?.let { "${channelLabel(rat)} $it" },
+                ).joinToString("  ·  ").ifEmpty { " " },
+                style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            AnimatedNumber(dbm, MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold), q.color())
+            if (dbm != null) MiniBars(powerFraction(dbm), q.color()) else
+                Text("brak pomiaru", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.faint)
+        }
+    }
 }
 
 @Composable
@@ -453,7 +577,7 @@ private fun ListRow(
                 val sub = listOfNotNull(channel?.toString(), trailing).joinToString("  ·  ")
                 if (sub.isNotEmpty()) Text(sub, style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
             }
-            Text(dbm?.toString() ?: "—", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = quality.color())
+            AnimatedNumber(dbm, MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold), quality.color())
             Spacer(Modifier.width(8.dp))
             MiniBars(powerFraction(dbm), quality.color())
         }

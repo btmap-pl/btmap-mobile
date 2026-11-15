@@ -23,6 +23,8 @@ data class Carrier(
     val source: CarrierSource,
     /** The measured cell, when there is one (signal for the carrier). */
     val cell: Cell?,
+    /** Best known identity: the measured cell's, or one learned earlier on this channel. */
+    val identity: CellIdentity? = cell?.identity,
 ) {
     val bandwidthMhz: Int? get() = bandwidthKhz?.let { it / 1000 }
 

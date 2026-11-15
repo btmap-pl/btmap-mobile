@@ -78,7 +78,7 @@ object CarrierResolver {
         return (
             sameNode.map { it.toCarrier(false, it.identity.bandwidthKhz, CarrierSource.LEARNED) } +
                 learnedOnly.map {
-                    Carrier(rat, false, it.band, it.channel, it.physicalId, it.bandwidthKhz, CarrierSource.LEARNED, null)
+                    Carrier(rat, false, it.band, it.channel, it.physicalId, it.bandwidthKhz, CarrierSource.LEARNED, null, it)
                 } +
                 samePci.map { it.toCarrier(false, it.identity.bandwidthKhz, CarrierSource.LEARNED) }
             ).distinctBy { it.channel }.toMutableList()

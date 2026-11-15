@@ -9,7 +9,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.remember
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,8 +32,9 @@ import java.util.Date
 import java.util.Locale
 
 /** Serving cells seen during this session, newest first. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun LogScreen(entries: List<LogEntry>, state: LiveState, contentPadding: PaddingValues) {
+fun LogScreen(entries: List<LogEntry>, state: LiveState, contentPadding: PaddingValues, onOpen: (LogEntry) -> Unit) {
     if (entries.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(contentPadding).padding(24.dp)) {
             Text("Log jest pusty", style = MaterialTheme.typography.titleMedium)
@@ -45,10 +50,18 @@ fun LogScreen(entries: List<LogEntry>, state: LiveState, contentPadding: Padding
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             )
         }
-        items(entries, key = { it.key }) { e ->
+        itemsIndexed(entries, key = { _, e -> e.key }) { index, e ->
             val id = e.identity
             val station = state.stationOf(id)
-            Column(Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
+            val interaction = remember { MutableInteractionSource() }
+            Column(
+                Modifier
+                    .animateItemPlacement()
+                    .enterAnimation(index.coerceAtMost(10))
+                    .pressScale(interaction)
+                    .clickable(interaction, LocalIndication.current) { onOpen(e) }
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Pill(
                         when (id.rat) { Rat.NR -> "5G"; Rat.LTE -> "4G"; Rat.WCDMA -> "3G"; Rat.GSM -> "2G" },

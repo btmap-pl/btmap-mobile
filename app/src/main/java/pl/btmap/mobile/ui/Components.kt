@@ -1,5 +1,28 @@
 package pl.btmap.mobile.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.TextStyle
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -175,6 +198,11 @@ fun Metric(label: String, value: String?, unit: String, color: Color, modifier: 
         // One line, never wrapped: long readouts ("-101 dBm") step down a size instead.
         val long = (value?.length ?: 0) + unit.length >= 7
         val muted = Btmap.colors.muted
+        AnimatedContent(
+            targetState = value,
+            transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(150)) using SizeTransform(clip = false) },
+            label = "metric",
+        ) { value ->
         Text(
             buildAnnotatedString {
                 withStyle(SpanStyle(color = if (value == null) Btmap.colors.faint else color, fontWeight = FontWeight.SemiBold)) {
@@ -188,6 +216,7 @@ fun Metric(label: String, value: String?, unit: String, color: Color, modifier: 
             maxLines = 1,
             softWrap = false,
         )
+        }
     }
 }
 
@@ -255,4 +284,75 @@ fun Divider(modifier: Modifier = Modifier) {
 @Composable
 fun VerticalRule(modifier: Modifier = Modifier) {
     Box(modifier.padding(horizontal = 8.dp).size(width = 1.dp, height = 12.dp).background(Btmap.colors.faint))
+}
+
+// ---- Motion --------------------------------------------------------------------------------
+
+/**
+ * Number that rolls up or down when it changes, like an odometer, so signal changes are visible
+ * at a glance instead of digits just swapping.
+ */
+@Composable
+fun AnimatedNumber(value: Int?, style: TextStyle, color: Color, modifier: Modifier = Modifier) {
+    val animatedColor by animateColorAsState(color, tween(400), label = "numColor")
+    AnimatedContent(
+        targetState = value,
+        transitionSpec = {
+            val up = (targetState ?: 0) > (initialState ?: 0)
+            val dir = if (up) 1 else -1
+            (slideInVertically(tween(260)) { h -> dir * h / 2 } + fadeIn(tween(260))) togetherWith
+                (slideOutVertically(tween(200)) { h -> -dir * h / 2 } + fadeOut(tween(160))) using
+                SizeTransform(clip = false)
+        },
+        modifier = modifier,
+        label = "number",
+    ) { v ->
+        Text(v?.toString() ?: "—", style = style, color = if (v == null) Btmap.colors.faint else animatedColor, maxLines = 1)
+    }
+}
+
+/** Soft breathing dot for "live" state. */
+@Composable
+fun PulseDot(color: Color, active: Boolean, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "pulse")
+    val scale by transition.animateFloat(
+        initialValue = 1f, targetValue = 2.4f,
+        animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Restart),
+        label = "pulseScale",
+    )
+    val alpha by transition.animateFloat(
+        initialValue = 0.45f, targetValue = 0f,
+        animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Restart),
+        label = "pulseAlpha",
+    )
+    Canvas(modifier.size(18.dp)) {
+        val r = 3.5.dp.toPx()
+        if (active) drawCircle(color.copy(alpha = alpha), radius = r * scale)
+        drawCircle(color, radius = r)
+    }
+}
+
+/** Fades and lifts content in the first time it is composed (staggered by [index]). */
+@Composable
+fun Modifier.enterAnimation(index: Int = 0): Modifier {
+    val shown = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay(index * 70L)
+        shown.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
+    }
+    return this.graphicsLayer {
+        alpha = shown.value
+        translationY = (1f - shown.value) * 28.dp.toPx()
+        val s = 0.97f + 0.03f * shown.value
+        scaleX = s
+        scaleY = s
+    }
+}
+
+/** Slight press-down scale for tappable surfaces. */
+@Composable
+fun Modifier.pressScale(interaction: MutableInteractionSource): Modifier {
+    val pressed by interaction.collectIsPressedAsState()
+    val s by animateFloatAsState(if (pressed) 0.97f else 1f, spring(stiffness = Spring.StiffnessMediumLow), label = "press")
+    return this.graphicsLayer { scaleX = s; scaleY = s }
 }
