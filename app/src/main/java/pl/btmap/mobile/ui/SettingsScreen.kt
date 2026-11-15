@@ -3,6 +3,8 @@ package pl.btmap.mobile.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.graphics.drawscope.Stroke
 import pl.btmap.core.model.Plmn
@@ -114,6 +116,7 @@ private enum class SettingsPage(val title: String) {
     MEASUREMENTS("Pomiary"),
     NOTIFICATION("Powiadomienie"),
     DATA("Dane"),
+    BANDS("Wymuszanie pasm"),
     TOOLS("Narzędzia"),
     ABOUT("O aplikacji"),
 }
@@ -160,9 +163,11 @@ fun SettingsScreen(
                 }
                 if (current == SettingsPage.DATABASE) {
                     DatabasePage(settings, onChange, core)
+                } else if (current == SettingsPage.BANDS) {
+                    BandsPage(settings) { page = SettingsPage.TOOLS }
                 } else Card(Modifier.enterAnimation(1)) {
                     when (current) {
-                        SettingsPage.DATABASE -> Unit
+                        SettingsPage.DATABASE, SettingsPage.BANDS -> Unit
                         SettingsPage.APPEARANCE -> AppearancePage(settings, onChange)
                         SettingsPage.MEASUREMENTS -> {
                             ModemAccess(core)
@@ -205,6 +210,7 @@ private fun SettingsMenu(settings: Settings, core: BtmapCore, logSize: Int, onOp
         Triple(SettingsPage.MEASUREMENTS, "Odświeżanie co ${settings.liveRefreshMs / 1000} s · w tle oszczędnie") { c -> LiveIcon(c) },
         Triple(SettingsPage.NOTIFICATION, "Pasma, $notification") { c -> Icon(Icons.Outlined.Notifications, null, tint = c) },
         Triple(SettingsPage.DATA, "$logSize w logu · ${core.dictionary.size} nauczonych") { c -> LogIcon(c) },
+        Triple(SettingsPage.BANDS, bandsSummary(settings)) { c -> BandLockIcon(c) },
         Triple(SettingsPage.TOOLS, toolsSummary(settings)) { c -> Icon(Icons.Outlined.Build, null, tint = c) },
         Triple(SettingsPage.ABOUT, "Wersja ${BuildConfig.VERSION_NAME} · MIT") { c -> Icon(Icons.Outlined.Info, null, tint = c) },
     )
@@ -658,6 +664,16 @@ private fun formatCount(n: Int): String = "%,d".format(Locale("pl"), n).replace(
 
 
 @Composable
+private fun bandsSummary(settings: Settings): String {
+    val app = LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp
+    val status by app.shizuku.status.collectAsStateWithLifecycle()
+    val active by app.bands.active.collectAsStateWithLifecycle()
+    if (status != ShizukuBridge.Status.READY || !settings.shizukuEnabled) return "Wymaga Shizuku"
+    val restricted = active.filterValues { !it.isUnrestricted }
+    return if (restricted.isEmpty()) "Wszystkie pasma odblokowane" else "Ograniczone: " + describe(restricted.values.first())
+}
+
+@Composable
 private fun toolsSummary(settings: Settings): String {
     val status by (LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp).shizuku.status.collectAsStateWithLifecycle()
     return "Shizuku: " + when {
@@ -759,22 +775,46 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
             )
         }
     }
-    AnimatedVisibility(ready && settings.shizukuEnabled, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-        Column {
-            Spacer(Modifier.height(20.dp))
-            Divider()
-            Spacer(Modifier.height(18.dp))
-            BandLockSection()
-        }
+    if (ready && settings.shizukuEnabled) {
+        Spacer(Modifier.height(14.dp))
+        Hint("Wymuszanie pasm jest dostępne w osobnej kategorii ustawień.")
     }
 }
 
-/** Band locking (Shizuku): pick bands per SIM, apply, save named configurations. */
+/** Result banner shown after applying bands. */
+private data class BandFeedback(val ok: Boolean, val title: String, val detail: String, val id: Long = System.nanoTime())
+
+/**
+ * Band locking page (needs Shizuku). Every band starts selected — all bands unlocked — and the user
+ * deselects the ones to block. Selecting every band of a technology means no restriction for it.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BandLockSection() {
+private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as pl.btmap.mobile.BtmapApp
+    val status by app.shizuku.status.collectAsStateWithLifecycle()
+    val available = status == ShizukuBridge.Status.READY && settings.shizukuEnabled
+
+    if (!available) {
+        Card(Modifier.enterAnimation(1)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(Btmap.colors.poor.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center,
+                ) { BandLockIcon(Btmap.colors.poor) }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Wymaga Shizuku", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Podłącz BTMap w Shizuku i włącz je w Narzędziach.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            WideButton("Przejdź do Narzędzi", primary = true, onClick = onOpenTools)
+        }
+        return
+    }
+
     val store = app.bands
     val scope = rememberCoroutineScope()
     val live by app.core.state.collectAsStateWithLifecycle()
@@ -784,113 +824,187 @@ private fun BandLockSection() {
     val sims = live.snapshot.sims
     var slot by rememberSaveable { mutableStateOf(sims.firstOrNull { it.isDataSim }?.slotIndex ?: 0) }
     val sim = sims.firstOrNull { it.slotIndex == slot } ?: sims.firstOrNull()
-    var lte by remember(slot, active) { mutableStateOf(active[slot]?.lte ?: emptySet()) }
-    var nr by remember(slot, active) { mutableStateOf(active[slot]?.nr ?: emptySet()) }
-    var message by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    val current = active[sim?.slotIndex ?: 0] ?: pl.btmap.mobile.tools.BandSelection()
+
+    val lteBands = (pl.btmap.mobile.tools.BandLock.POLISH_LTE + observed.lte + current.lte).distinct().sorted()
+    val nrBands = (pl.btmap.mobile.tools.BandLock.POLISH_NR + observed.nr + current.nr).distinct().sorted()
+    // Shown as "allowed": empty restriction = everything allowed.
+    var lte by remember(slot, current) { mutableStateOf(current.lte.ifEmpty { lteBands.toSet() }) }
+    var nr by remember(slot, current) { mutableStateOf(current.nr.ifEmpty { nrBands.toSet() }) }
+    val selection = pl.btmap.mobile.tools.BandSelection(
+        lte = if (lte.containsAll(lteBands)) emptySet() else lte,
+        nr = if (nr.containsAll(nrBands)) emptySet() else nr,
+    )
+    val changed = selection != current
     var busy by remember { mutableStateOf(false) }
+    var feedback by remember { mutableStateOf<BandFeedback?>(null) }
     var naming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<BandPreset?>(null) }
+    LaunchedEffect(feedback) {
+        if (feedback != null) {
+            kotlinx.coroutines.delay(5_000)
+            feedback = null
+        }
+    }
 
-    fun apply(selection: pl.btmap.mobile.tools.BandSelection, label: String) {
-        val subId = sim?.subscriptionId ?: return
+    fun apply(target: pl.btmap.mobile.tools.BandSelection, label: String) {
+        val s = sim ?: return
         busy = true
         scope.launch {
-            val result = runCatching { pl.btmap.mobile.tools.BandLock.apply(subId, selection) }
+            val result = runCatching { pl.btmap.mobile.tools.BandLock.apply(s.subscriptionId, target) }
             val ok = result.getOrNull()
-            message = when {
-                result.isFailure -> false to "Nie udało się: ${result.exceptionOrNull()?.message ?: "błąd Shizuku"}"
-                ok == true -> true to "Zastosowano: $label"
-                ok == false -> false to "Modem odrzucił tę konfigurację"
-                else -> true to "Wysłano: $label (modem nie potwierdził)"
+            val simLabel = "SIM ${s.slotIndex + 1} · " + Operators.displayName(s.registeredPlmn, s.networkOperatorName)
+            feedback = when {
+                result.isFailure -> BandFeedback(false, "Nie udało się wymusić pasm", result.exceptionOrNull()?.message ?: "Błąd połączenia z Shizuku")
+                ok == false -> BandFeedback(false, "Modem odrzucił konfigurację", "$simLabel · spróbuj innego zestawu pasm")
+                target.isUnrestricted -> BandFeedback(true, "Odblokowano wszystkie pasma", simLabel)
+                else -> BandFeedback(true, if (ok == true) "Wymuszono pasma" else "Wysłano do modemu", "$simLabel · $label")
             }
-            if (result.isSuccess && ok != false) store.setActive(sim.slotIndex, selection)
+            if (result.isSuccess && ok != false) store.setActive(s.slotIndex, target)
             busy = false
         }
     }
 
-    Text("Wymuszanie pasm", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    Hint("Ogranicza pasma, z których może korzystać modem. Działa do ponownego uruchomienia telefonu. Pasma oznaczone kropką zostały wykryte przez modem tego telefonu.")
-    Spacer(Modifier.height(12.dp))
-
-    if (sims.size > 1) {
-        Segmented(
-            options = sims.map { it.slotIndex to "SIM ${it.slotIndex + 1} · " + Operators.displayName(it.registeredPlmn, it.networkOperatorName) },
-            selected = sim?.slotIndex ?: 0,
-            onSelect = { slot = it; message = null },
-        )
-        Spacer(Modifier.height(12.dp))
-    }
-    val current = active[sim?.slotIndex ?: 0]
-    Text(
-        "Teraz: " + (current?.let { describe(it) } ?: "wszystkie pasma"),
-        style = MaterialTheme.typography.bodySmall, color = if (current != null) Btmap.colors.poor else Btmap.colors.muted,
-    )
-
-    Spacer(Modifier.height(12.dp))
-    Label("LTE")
-    BandChips(
-        bands = (pl.btmap.mobile.tools.BandLock.POLISH_LTE + observed.lte).distinct().sorted(),
-        label = { "B$it · " + pl.btmap.mobile.tools.BandLock.lteLabel(it) },
-        selected = lte, detected = observed.lte,
-    ) { b -> lte = if (b in lte) lte - b else lte + b }
-    Spacer(Modifier.height(12.dp))
-    Label("5G NR")
-    BandChips(
-        bands = (pl.btmap.mobile.tools.BandLock.POLISH_NR + observed.nr).distinct().sorted(),
-        label = { "n$it · " + pl.btmap.mobile.tools.BandLock.nrLabel(it) },
-        selected = nr, detected = observed.nr,
-    ) { b -> nr = if (b in nr) nr - b else nr + b }
-    Spacer(Modifier.height(6.dp))
-    Hint("Brak zaznaczeń w danej technologii = wszystkie jej pasma dozwolone.")
-
-    message?.let { (ok, text) ->
-        Spacer(Modifier.height(10.dp))
-        Text(text, style = MaterialTheme.typography.bodySmall, color = if (ok) Btmap.colors.good else Btmap.colors.bad)
-    }
-    Spacer(Modifier.height(14.dp))
-    val selection = pl.btmap.mobile.tools.BandSelection(lte, nr)
-    WideButton(if (busy) "Wysyłam…" else "Zastosuj", primary = true) {
-        if (!busy) apply(selection, describe(selection))
-    }
-    Spacer(Modifier.height(8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ActionButton("Zapisz jako…", enabled = !selection.isUnrestricted) { naming = true }
-        ActionButton("Wszystkie pasma", danger = current != null) {
-            lte = emptySet(); nr = emptySet()
-            apply(pl.btmap.mobile.tools.BandSelection(), "wszystkie pasma")
-        }
-    }
-
-    if (presets.isNotEmpty()) {
-        Spacer(Modifier.height(20.dp))
-        Label("Zapisane konfiguracje")
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            presets.forEachIndexed { i, preset ->
-                val isActive = current == preset.selection
-                val border by animateColorAsState(if (isActive) Btmap.colors.accent else Color.Transparent, tween(250), label = "presetBorder")
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        // ---- Feedback banner ----
+        AnimatedVisibility(
+            visible = feedback != null,
+            enter = slideInVertically { -it } + fadeIn(),
+            exit = slideOutVertically { -it } + fadeOut(),
+        ) {
+            val fb = feedback
+            if (fb != null) {
+                val tint = if (fb.ok) Btmap.colors.good else Btmap.colors.bad
                 Row(
                     Modifier
-                        .enterAnimation(i)
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Btmap.colors.cardRaised)
-                        .border(1.dp, border, RoundedCornerShape(16.dp))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(tint.copy(alpha = 0.14f))
+                        .border(1.dp, tint.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                        .clickable { feedback = null }
+                        .padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(preset.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                        Text(describe(preset.selection), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+                    Text(if (fb.ok) "✓" else "!", style = MaterialTheme.typography.titleLarge, color = tint, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(fb.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = tint)
+                        Text(fb.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                     }
-                    ActionButton(if (isActive) "Aktywna" else "Zastosuj", primary = !isActive, enabled = !busy) {
-                        lte = preset.selection.lte; nr = preset.selection.nr
-                        apply(preset.selection, preset.name)
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    TextButton(onClick = { deleting = preset }) { Text("Usuń", color = Btmap.colors.bad, style = MaterialTheme.typography.labelMedium) }
                 }
             }
         }
+
+        // ---- Status ----
+        Card(Modifier.enterAnimation(1)) {
+            val restricted = !current.isUnrestricted
+            val tint = if (restricted) Btmap.colors.poor else Btmap.colors.good
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(tint.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center,
+                ) { BandLockIcon(tint) }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Crossfade(restricted, label = "lockTitle") { r ->
+                        Text(
+                            if (r) "Pasma ograniczone" else "Wszystkie pasma odblokowane",
+                            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Text(
+                        if (restricted) describe(current) else "Modem sam wybiera pasma",
+                        style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
+                    )
+                }
+            }
+            if (sims.size > 1) {
+                Spacer(Modifier.height(14.dp))
+                Segmented(
+                    options = sims.map { it.slotIndex to "SIM ${it.slotIndex + 1} · " + Operators.displayName(it.registeredPlmn, it.networkOperatorName) },
+                    selected = sim?.slotIndex ?: 0,
+                    onSelect = { slot = it },
+                )
+            }
+            if (restricted) {
+                Spacer(Modifier.height(12.dp))
+                WideButton("Odblokuj wszystkie pasma") {
+                    lte = lteBands.toSet(); nr = nrBands.toSet()
+                    apply(pl.btmap.mobile.tools.BandSelection(), "wszystkie pasma")
+                }
+            }
+        }
+
+        // ---- LTE / NR ----
+        BandCard("LTE", lteBands, lte, observed.lte, 2, { "B$it" }, { pl.btmap.mobile.tools.BandLock.lteLabel(it) }) { lte = it }
+        BandCard("5G NR", nrBands, nr, observed.nr, 3, { "n$it" }, { pl.btmap.mobile.tools.BandLock.nrLabel(it) }) { nr = it }
+
+        Row(Modifier.enterAnimation(4), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(6.dp).clip(RoundedCornerShape(50)).background(Btmap.colors.good))
+            Spacer(Modifier.width(6.dp))
+            Text("wykryte przez modem tego telefonu", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
+        }
+
+        // ---- Actions ----
+        Column(Modifier.enterAnimation(4), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val blocked = lte.isEmpty() || nr.isEmpty()
+            WideButton(
+                when {
+                    busy -> "Wysyłam do modemu…"
+                    blocked -> "Zostaw co najmniej jedno pasmo LTE i 5G"
+                    changed -> "Wymuś wybrane pasma"
+                    else -> "Bez zmian"
+                },
+                primary = changed && !blocked && !busy,
+            ) { if (changed && !blocked && !busy) apply(selection, describe(selection)) }
+            if (!selection.isUnrestricted) {
+                ActionButton("Zapisz jako konfigurację…") { naming = true }
+            }
+        }
+
+        // ---- Saved configurations ----
+        if (presets.isNotEmpty()) {
+            SectionLabel("Zapisane konfiguracje", 5)
+            Card(Modifier.enterAnimation(5)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    presets.forEach { preset ->
+                        val isActive = current == preset.selection
+                        val border by animateColorAsState(if (isActive) Btmap.colors.accent else Btmap.colors.divider, tween(250), label = "presetBorder")
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(if (isActive) Btmap.colors.accent.copy(alpha = 0.08f) else Btmap.colors.cardRaised)
+                                .border(1.dp, border, RoundedCornerShape(16.dp))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(preset.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                    if (isActive) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("AKTYWNA", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.accent)
+                                    }
+                                }
+                                Text(describe(preset.selection), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+                            }
+                            if (!isActive) {
+                                ActionButton("Wymuś", primary = true, enabled = !busy) {
+                                    lte = preset.selection.lte.ifEmpty { lteBands.toSet() }
+                                    nr = preset.selection.nr.ifEmpty { nrBands.toSet() }
+                                    apply(preset.selection, preset.name)
+                                }
+                            }
+                            TextButton(onClick = { deleting = preset }) {
+                                Text("Usuń", color = Btmap.colors.bad, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Hint("Wymuszenie działa do ponownego uruchomienia telefonu — potem zastosuj konfigurację jeszcze raz.")
     }
 
     if (naming) {
@@ -911,7 +1025,11 @@ private fun BandLockSection() {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { store.savePreset(name, selection); naming = false }) { Text("Zapisz", color = Btmap.colors.accent) }
+                TextButton(onClick = {
+                    val saved = store.savePreset(name, selection)
+                    naming = false
+                    feedback = BandFeedback(true, "Zapisano konfigurację", saved.name)
+                }) { Text("Zapisz", color = Btmap.colors.accent) }
             },
             dismissButton = { TextButton(onClick = { naming = false }) { Text("Anuluj") } },
             containerColor = Btmap.colors.card,
@@ -921,11 +1039,71 @@ private fun BandLockSection() {
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Usunąć „${preset.name}”?") },
-            text = { Text("Konfiguracja zniknie z listy. Pasma ustawione w modemie się nie zmienią.") },
+            text = { Text("Konfiguracja zniknie z listy. Pasma ustawione teraz w modemie się nie zmienią.") },
             confirmButton = { TextButton(onClick = { store.deletePreset(preset.id); deleting = null }) { Text("Usuń", color = Btmap.colors.bad) } },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Anuluj") } },
             containerColor = Btmap.colors.card,
         )
+    }
+}
+
+/** One technology: header with select all / none and a grid of band toggles. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BandCard(
+    title: String,
+    bands: List<Int>,
+    selected: Set<Int>,
+    detected: Set<Int>,
+    index: Int,
+    code: (Int) -> String,
+    mhz: (Int) -> String,
+    onChange: (Set<Int>) -> Unit,
+) {
+    val colors = Btmap.colors
+    Card(Modifier.enterAnimation(index)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+            Text("${selected.size}/${bands.size}", style = MaterialTheme.typography.labelMedium, color = colors.muted)
+            Spacer(Modifier.weight(1f))
+            val all = selected.containsAll(bands)
+            TextButton(onClick = { onChange(if (all) emptySet() else bands.toSet()) }) {
+                Text(if (all) "Odznacz wszystkie" else "Zaznacz wszystkie", color = colors.accent, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            bands.forEach { b ->
+                val on = b in selected
+                val known = b in detected
+                val interaction = remember { MutableInteractionSource() }
+                val bg by animateColorAsState(if (on) colors.accent.copy(alpha = 0.16f) else Color.Transparent, tween(200), label = "bandBg")
+                val border by animateColorAsState(if (on) colors.accent.copy(alpha = 0.8f) else colors.divider, tween(200), label = "bandBorder")
+                Column(
+                    Modifier
+                        .width(96.dp)
+                        .pressScale(interaction)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(bg)
+                        .border(1.dp, border, RoundedCornerShape(14.dp))
+                        .clickable(interaction, LocalIndication.current) { onChange(if (on) selected - b else selected + b) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            code(b), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+                            color = if (on) colors.accent else colors.faint, modifier = Modifier.weight(1f),
+                        )
+                        if (known) Box(Modifier.size(6.dp).clip(RoundedCornerShape(50)).background(colors.good))
+                    }
+                    Text(
+                        mhz(b), style = MaterialTheme.typography.labelSmall,
+                        color = if (on) MaterialTheme.colorScheme.onSurface else colors.faint,
+                    )
+                }
+            }
+        }
     }
 }
 

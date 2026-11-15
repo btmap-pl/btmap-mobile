@@ -402,3 +402,37 @@ fun DatabaseIcon(color: Color, modifier: Modifier = Modifier) {
         drawLine(color, Offset(left + w, top + h / 2), Offset(left + w, bottom + h / 2), stroke.width)
     }
 }
+
+/** Signal bars with a small padlock: band locking. */
+@Composable
+fun BandLockIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(22.dp)) {
+        val w = size.width
+        val h = size.height
+        val bar = w * 0.13f
+        val gap = w * 0.07f
+        // Four rising bars on the left.
+        for (i in 0..3) {
+            val bh = h * (0.28f + i * 0.17f)
+            drawRoundRect(
+                color,
+                topLeft = Offset(w * 0.04f + i * (bar + gap), h * 0.92f - bh),
+                size = Size(bar, bh),
+                cornerRadius = CornerRadius(1.5.dp.toPx()),
+            )
+        }
+        // Padlock bottom right.
+        val lockW = w * 0.38f
+        val lockH = h * 0.30f
+        val left = w - lockW
+        val top = h - lockH
+        drawRoundRect(color, topLeft = Offset(left, top), size = Size(lockW, lockH), cornerRadius = CornerRadius(2.dp.toPx()))
+        val shackleR = lockW * 0.30f
+        drawArc(
+            color, 180f, 180f, false,
+            topLeft = Offset(left + lockW / 2 - shackleR, top - shackleR),
+            size = Size(shackleR * 2, shackleR * 2),
+            style = Stroke(1.6.dp.toPx()),
+        )
+    }
+}
