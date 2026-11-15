@@ -124,5 +124,16 @@ object Bands {
         }
     }
 
+    /** Band from a UKE label as used on btmap.pl ("1800" → LTE B3 / NR n3); no channel, so no frequency. */
+    fun fromLabel(rat: Rat, label: String): Band? {
+        val number = when (rat) {
+            Rat.LTE -> mapOf("700" to 28, "800" to 20, "900" to 8, "1500" to 32, "1800" to 3, "2100" to 1, "2600" to 7)[label]
+            Rat.NR -> mapOf("700" to 28, "800" to 20, "900" to 8, "1800" to 3, "2100" to 1, "2600" to 7, "3500" to 78, "3600" to 78)[label]
+            Rat.WCDMA -> mapOf("900" to 8, "2100" to 1)[label]
+            Rat.GSM -> mapOf("900" to 900, "1800" to 1800)[label]
+        } ?: return null
+        return Band(rat, number, label, null)
+    }
+
     private fun round2(v: Double) = (v * 100).roundToLong() / 100.0
 }

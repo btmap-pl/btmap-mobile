@@ -50,6 +50,7 @@ import java.util.concurrent.Executors
 class CellMonitor(
     context: Context,
     private val refreshIntervalMs: Long = 2_000,
+    val dictionary: CellDictionary = CellDictionary(),
 ) {
     private val appContext = context.applicationContext
     private val telephony = appContext.getSystemService(TelephonyManager::class.java)
@@ -177,11 +178,24 @@ class CellMonitor(
         val registeredPlmn = Plmn.parse(runCatching { tm.networkOperator }.getOrNull())
         val simPlmn = Plmn.of(sub.mccString, sub.mncString)
 
-        val parsed = inputs.cellInfo.mapNotNull(CellInfoParser::parse)
-        val cells = withNsaLeg(parsed, inputs.signal, inputs.display, registeredPlmn)
+        val bandwidths = inputs.service?.cellBandwidths?.filter { it > 0 }.orEmpty()
+        // ServiceState's first bandwidth is the PCell's; CellIdentity's value is often stale.
+        val parsed = inputs.cellInfo.mapNotNull(CellInfoParser::parse).map { cell ->
+            val bw = bandwidths.firstOrNull()
+            if (cell.role == CellRole.PRIMARY && bw != null) cell.copy(identity = cell.identity.copy(bandwidthKhz = bw)) else cell
+        }
+        val plmn = registeredPlmn ?: simPlmn
+        parsed.filter(Cell::isServing).forEach { dictionary.learn(plmn, it) }
+        val enriched = parsed.map { if (it.isServing) it else dictionary.enrich(plmn, it) }
+        val cells = withNsaLeg(enriched, inputs.signal, inputs.display, registeredPlmn)
             .sortedWith(compareBy<Cell>({ it.role.ordinal }, { -(it.signal.mainDbm ?: -200) }))
 
-        val bandwidths = inputs.service?.cellBandwidths?.filter { it > 0 }.orEmpty()
+        val carriers = CarrierResolver.resolve(cells, bandwidths, plmn, dictionary)
+        val hasNrLeg = cells.any { it.rat == Rat.NR && it.role != CellRole.NEIGHBOUR }
+        val announced = networkMode(cells, inputs.display, bandwidths)
+        // Android reports NR_NSA as soon as the anchor advertises EN-DC; only call it 5G with a live NR leg.
+        val nrAvailable = !hasNrLeg && (announced == NetworkMode.NR_NSA || announced == NetworkMode.NR_NSA_MMWAVE)
+        val mode = if (nrAvailable) (if (bandwidths.size > 1) NetworkMode.LTE_CA else NetworkMode.LTE) else announced
 
         return SimState(
             subscriptionId = sub.subscriptionId,
@@ -191,11 +205,13 @@ class CellMonitor(
             registeredPlmn = registeredPlmn,
             operator = Operators.byPlmn(registeredPlmn ?: simPlmn),
             networkOperatorName = runCatching { tm.networkOperatorName }.getOrNull()?.takeIf { it.isNotBlank() },
-            mode = networkMode(cells, inputs.display, bandwidths),
+            mode = mode,
+            nrAvailable = nrAvailable,
             isRoaming = inputs.service?.roaming ?: false,
             isDataSim = SubscriptionManager.getDefaultDataSubscriptionId() == sub.subscriptionId,
             cells = cells,
             carrierBandwidthsKhz = bandwidths,
+            carriers = carriers,
             updatedAtMillis = System.currentTimeMillis(),
             error = inputs.error,
         )

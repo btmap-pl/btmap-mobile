@@ -60,6 +60,8 @@ data class CellIdentity(
     val bandwidthKhz: Int? = null,
     /** Operator name from the network (alpha long), when known. */
     val operatorAlpha: String? = null,
+    /** CI / node / TAC were filled in from [pl.btmap.core.telephony.CellDictionary], not reported. */
+    val learned: Boolean = false,
 ) {
     /** "141981:22" for LTE/NR, "CI" otherwise. */
     val nodeLabel: String?

@@ -36,6 +36,10 @@ data class SimState(
     val cells: List<Cell>,
     /** Per-carrier bandwidths reported by ServiceState (PCell + SCells), kHz. */
     val carrierBandwidthsKhz: List<Int>,
+    /** Component carriers of the connection, primary first. Empty when idle / no service. */
+    val carriers: List<Carrier>,
+    /** The LTE anchor offers EN-DC (status bar shows 5G) but no NR leg is active right now. */
+    val nrAvailable: Boolean = false,
     /** Wall-clock time of the last update. */
     val updatedAtMillis: Long,
     /** Set when the modem could not be read, e.g. a missing permission. */
@@ -46,7 +50,7 @@ data class SimState(
     val neighbours: List<Cell> get() = cells.filter { it.role == CellRole.NEIGHBOUR }
 
     /** Aggregated bandwidth in MHz, e.g. 20 + 20 + 10 + 100. */
-    val totalBandwidthMhz: Int get() = carrierBandwidthsKhz.sum() / 1000
+    val totalBandwidthKhz: Int get() = carriers.sumOf { it.bandwidthKhz ?: 0 }
 }
 
 data class NetworkSnapshot(

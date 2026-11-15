@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import pl.btmap.core.model.Cell
+import pl.btmap.core.model.CellIdentity
 import pl.btmap.core.model.Plmn
 import pl.btmap.core.model.Rat
 import pl.btmap.core.radio.Operators
@@ -41,8 +42,9 @@ data class NodeKey(val plmn: Plmn, val rat: Rat, val nodeId: Long) {
         get() = "${plmn.mcc} ${plmn.mnc} ${if (rat == Rat.NR) "gNB" else "eNB"} $nodeId"
 
     companion object {
-        fun of(cell: Cell): NodeKey? {
-            val id = cell.identity
+        fun of(cell: Cell): NodeKey? = of(cell.identity)
+
+        fun of(id: CellIdentity): NodeKey? {
             if (id.rat != Rat.LTE && id.rat != Rat.NR) return null
             return NodeKey(id.plmn ?: return null, id.rat, id.nodeId ?: return null)
         }
