@@ -32,11 +32,19 @@ data class GeoFix(
  * GPS + network location without Google Play services (works on de-Googled ROMs too).
  * Network fixes are only used until the first GPS fix arrives, or when GPS goes stale.
  */
-class LocationTracker(context: Context, private val minIntervalMs: Long = 1_000) {
+class LocationTracker(context: Context) {
     private val lm = context.applicationContext.getSystemService(LocationManager::class.java)
 
+    /**
+     * @param wanted providers to use, best first; disabled ones are skipped.
+     * @param minIntervalMs / [minDistanceM] pace of updates (larger = less battery).
+     */
     @SuppressLint("MissingPermission")
-    fun fixes(): Flow<GeoFix> = callbackFlow {
+    fun fixes(
+        wanted: List<String> = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER),
+        minIntervalMs: Long = 1_000,
+        minDistanceM: Float = 0f,
+    ): Flow<GeoFix> = callbackFlow {
         var lastGpsAt = 0L
         val listener = LocationListener { loc ->
             val isGps = loc.provider == LocationManager.GPS_PROVIDER
@@ -44,13 +52,14 @@ class LocationTracker(context: Context, private val minIntervalMs: Long = 1_000)
             else if (loc.time - lastGpsAt < STALE_GPS_MS) return@LocationListener
             trySend(loc.toFix())
         }
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            .filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        val providers = wanted.filter {
+            it == LocationManager.PASSIVE_PROVIDER || runCatching { lm.isProviderEnabled(it) }.getOrDefault(false)
+        }
         providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
             .maxByOrNull { it.time }
             ?.let { trySend(it.toFix()) }
         try {
-            providers.forEach { lm.requestLocationUpdates(it, minIntervalMs, 0f, listener, Looper.getMainLooper()) }
+            providers.forEach { lm.requestLocationUpdates(it, minIntervalMs, minDistanceM, listener, Looper.getMainLooper()) }
         } catch (e: SecurityException) {
             close(e)
         }

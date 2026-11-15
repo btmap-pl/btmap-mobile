@@ -1,6 +1,13 @@
 package pl.btmap.mobile
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import pl.btmap.core.PowerMode
+import pl.btmap.mobile.service.MonitorService
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -54,28 +61,42 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (core.hasPermissions()) core.start()
+        MonitorService.uiVisible = true
+        core.setMode(PowerMode.LIVE)
+        if (core.hasPermissions()) {
+            core.start()
+            // Always monitors in the background; the power mode adapts to screen and app state.
+            MonitorService.start(this)
+        }
     }
 
     override fun onStop() {
-        // Foreground-only for now; a foreground service will keep logging in the background later.
-        core.stop()
+        MonitorService.uiVisible = false
         super.onStop()
     }
 }
 
 @Composable
 private fun Root(core: BtmapCore, mode: ThemeMode, onThemeChange: (ThemeMode) -> Unit) {
+    val context = LocalContext.current
     var granted by remember { mutableStateOf(core.hasPermissions()) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         granted = core.hasPermissions()
-        if (granted) core.start()
+        if (granted) {
+            core.start()
+            MonitorService.start(context)
+        }
+    }
+    val permissions = remember {
+        CellMonitor.REQUIRED_PERMISSIONS + if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()
     }
     LaunchedEffect(Unit) {
-        if (!granted) launcher.launch(CellMonitor.REQUIRED_PERMISSIONS)
+        val notificationsMissing = Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (!granted || notificationsMissing) launcher.launch(permissions)
     }
     if (!granted) {
-        PermissionScreen(onRequest = { launcher.launch(CellMonitor.REQUIRED_PERMISSIONS) })
+        PermissionScreen(onRequest = { launcher.launch(permissions) })
     } else {
         val state by core.state.collectAsStateWithLifecycle()
         val log by core.log.entries.collectAsStateWithLifecycle()

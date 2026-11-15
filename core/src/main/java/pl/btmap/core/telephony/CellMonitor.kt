@@ -16,7 +16,9 @@ import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
@@ -49,9 +51,16 @@ import java.util.concurrent.Executors
  */
 class CellMonitor(
     context: Context,
-    private val refreshIntervalMs: Long = 2_000,
+    refreshIntervalMs: Long = 2_000,
     val dictionary: CellDictionary = CellDictionary(),
 ) {
+    private val refreshInterval = MutableStateFlow(refreshIntervalMs)
+
+    /** Changes how often fresh cell info is requested; takes effect immediately. */
+    fun setRefreshInterval(ms: Long) {
+        refreshInterval.value = ms
+    }
+
     private val appContext = context.applicationContext
     private val telephony = appContext.getSystemService(TelephonyManager::class.java)
     private val subscriptions = appContext.getSystemService(SubscriptionManager::class.java)
@@ -163,7 +172,9 @@ class CellMonitor(
                     synchronized(lock) { inputs.error = "Brak uprawnień: ${e.message}" }
                     publish()
                 }
-                delay(refreshIntervalMs)
+                // Sleep for the current interval, but wake early if it is shortened (app comes to front).
+                val current = refreshInterval.value
+                withTimeoutOrNull(current) { refreshInterval.first { it < current } }
             }
         }
 

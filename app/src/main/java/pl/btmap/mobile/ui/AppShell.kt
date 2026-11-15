@@ -145,7 +145,12 @@ fun AppShell(
 }
 
 @Composable
-private fun TopBar(title: String, running: Boolean, mode: ThemeMode, onThemeChange: (ThemeMode) -> Unit) {
+private fun TopBar(
+    title: String,
+    running: Boolean,
+    mode: ThemeMode,
+    onThemeChange: (ThemeMode) -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -227,3 +232,4 @@ private fun BottomBar(current: Tab, onSelect: (Tab) -> Unit, modifier: Modifier 
         }
     }
 }
+

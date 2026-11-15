@@ -2,6 +2,12 @@ package pl.btmap.core
 
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
@@ -82,7 +88,7 @@ data class LiveState(
 class BtmapCore(
     context: Context,
     apiBaseUrl: String,
-    refreshIntervalMs: Long = 2_000,
+    refreshIntervalMs: Long = PowerMode.LIVE.cellRefreshMs,
 ) {
     val dictionary = CellDictionary(File(context.filesDir, "cell-dictionary.json"))
     val monitor = CellMonitor(context, refreshIntervalMs, dictionary)
@@ -116,31 +122,73 @@ class BtmapCore(
         NodeKey.of(identity)?.let { lookup(listOf(it)) }
     }
 
+    private val _mode = MutableStateFlow(PowerMode.LIVE)
+    val mode: StateFlow<PowerMode> = _mode.asStateFlow()
+
+    /** Last time a snapshot was logged, and which serving cells it had. */
+    private var lastSampleAt = 0L
+    private var lastServingKeys: Set<String> = emptySet()
+
+    /**
+     * Switches the power profile. Cheap to call often; only what changed is restarted.
+     * GPS is re-requested with the new pace, the cell poll interval changes in place.
+     */
+    fun setMode(mode: PowerMode) {
+        if (_mode.value == mode) return
+        _mode.value = mode
+        monitor.setRefreshInterval(mode.cellRefreshMs)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Synchronized
     fun start() {
         if (jobs.isNotEmpty()) return
         _state.update { it.copy(running = true) }
+        monitor.setRefreshInterval(_mode.value.cellRefreshMs)
         jobs = listOf(
             scope.launch {
                 monitor.snapshots().collect { snap ->
                     _state.update { it.copy(snapshot = snap) }
-                    log.record(snap, _state.value.fix)
-                    resolveStations(snap)
+                    if (shouldSample(snap)) {
+                        log.record(snap, _state.value.fix)
+                        resolveStations(snap)
+                        _samples.tryEmit(_state.value)
+                    }
                 }
             },
             scope.launch {
-                location.fixes()
-                    .catch { /* No location permission or providers off: keep cells running. */ }
-                    .collect { fix -> _state.update { it.copy(fix = fix) } }
+                _mode.flatMapLatest { m ->
+                    location.fixes(m.locationProviders, m.locationIntervalMs, m.locationMinDistanceM)
+                        .catch { /* No location permission or providers off: keep cells running. */ }
+                }.collect { fix -> _state.update { it.copy(fix = fix) } }
             },
             scope.launch(Dispatchers.IO) {
                 while (true) {
-                    delay(15_000)
+                    delay(_mode.value.flushMs)
                     runCatching { dictionary.flush() }
                     runCatching { log.flush() }
                 }
             },
         )
+    }
+
+    private val _samples = MutableSharedFlow<LiveState>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /**
+     * Throttled state for consumers that should not wake on every signal callback (the
+     * notification): at most one per [PowerMode.sampleMs], but immediately on a handover.
+     */
+    val samples: SharedFlow<LiveState> = _samples.asSharedFlow()
+
+    private fun shouldSample(snap: NetworkSnapshot): Boolean {
+        val keys = snap.sims.flatMap { sim -> sim.carriers.map { "${sim.slotIndex}:${it.rat}:${it.channel}:${it.physicalId}" } }.toSet()
+        val now = System.currentTimeMillis()
+        val due = now - lastSampleAt >= _mode.value.sampleMs || keys != lastServingKeys
+        if (due) {
+            lastSampleAt = now
+            lastServingKeys = keys
+        }
+        return due
     }
 
     @Synchronized
