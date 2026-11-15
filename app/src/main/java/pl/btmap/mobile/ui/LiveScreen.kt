@@ -467,7 +467,7 @@ private fun StationBlock(cell: Cell, state: LiveState, stationUrl: (Station) -> 
     Spacer(Modifier.height(16.dp))
     if (station == null) {
         Text(
-            if (cell.identity.nodeId == null) "" else if (state.isLookedUp(cell)) "Stacja nieznana w BTMap" else "Szukam stacji…",
+            if (cell.identity.nodeId == null) "" else if (state.isLookedUp(cell)) "Brak tej stacji w pobranej bazie" else "Szukam stacji…",
             style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
         )
         return

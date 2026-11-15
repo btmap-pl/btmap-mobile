@@ -249,7 +249,8 @@ class BtmapCore(
 
     /** Looks up BTMap stations for serving cells that were not resolved yet. */
     private fun resolveStations(snap: NetworkSnapshot) {
-        lookup(snap.sims.flatMap { sim -> sim.cells.filter(Cell::isServing) }.mapNotNull(NodeKey::of))
+        // Serving cells, and neighbours whose eNB is already known (learned earlier on this phone).
+        lookup(snap.sims.flatMap { sim -> sim.cells }.mapNotNull(NodeKey::of))
     }
 
     /** Names measured neighbours (channel + PCI) from the station database, near the current position. */

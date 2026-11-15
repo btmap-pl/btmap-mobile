@@ -364,8 +364,18 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
             if (running != null) {
                 WideButton("Anuluj pobieranie", danger = true) { DatabaseWorker.cancel(context) }
             } else {
-                WideButton(if (info == null) "Pobierz bazę" else "Aktualizuj teraz", primary = true) {
-                    DatabaseWorker.runNow(context, settings)
+                val stale = remember(info, settings.btsearchMncs, settings.dbRefreshDays, settings.database) {
+                    if (settings.database == StationSource.BTSEARCH)
+                        core.stations.staleOperators(StationSource.BTSEARCH, settings.btsearchMncs, DatabaseWorker.maxAgeMs(settings))
+                    else emptySet()
+                }
+                when {
+                    info == null -> WideButton("Pobierz bazę", primary = true) { DatabaseWorker.runNow(context, settings) }
+                    stale.isNotEmpty() -> {
+                        val names = DbOperators.ALL.filter { it.mnc in stale }.joinToString(", ") { it.name }
+                        WideButton("Pobierz: $names", primary = true) { DatabaseWorker.runNow(context, settings) }
+                    }
+                    else -> WideButton("Odśwież wszystko", primary = false) { DatabaseWorker.runNow(context, settings, force = true) }
                 }
                 if (settings.dbWifiOnly) {
                     Spacer(Modifier.height(6.dp))

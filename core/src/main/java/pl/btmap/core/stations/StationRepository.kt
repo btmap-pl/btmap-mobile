@@ -130,7 +130,14 @@ class StationRepository(context: Context) {
      * cards' networks), and every finished operator is saved and usable right away; operators no
      * longer selected are removed. The old data of an operator stays until its new data is complete.
      */
-    suspend fun download(source: StationSource, apiBase: String, btsearchMncs: Set<Int>, preferredMncs: List<Int> = emptyList()): Result<SourceInfo> =
+    suspend fun download(
+        source: StationSource,
+        apiBase: String,
+        btsearchMncs: Set<Int>,
+        preferredMncs: List<Int> = emptyList(),
+        /** Operators downloaded more recently than this are skipped; 0 = re-download everything. */
+        maxAgeMs: Long = Long.MAX_VALUE,
+    ): Result<SourceInfo> =
         importLock.withLock {
             withContext(Dispatchers.IO) {
                 val ctx = currentCoroutineContext()
@@ -142,7 +149,7 @@ class StationRepository(context: Context) {
                             val progress = progressFor(source)
                             db.replace(source, null) { writer -> BtmapImporter.import(writer, apiBase, progress, cancelled) }
                         }
-                        StationSource.BTSEARCH -> downloadBtsearch(btsearchMncs, preferredMncs, cancelled)
+                        StationSource.BTSEARCH -> downloadBtsearch(btsearchMncs, preferredMncs, maxAgeMs, cancelled)
                     }
                 }
                 result.onSuccess {
@@ -158,26 +165,40 @@ class StationRepository(context: Context) {
             }
         }
 
-    private fun downloadBtsearch(mncs: Set<Int>, preferred: List<Int>, cancelled: () -> Boolean): SourceInfo {
+    private fun downloadBtsearch(mncs: Set<Int>, preferred: List<Int>, maxAgeMs: Long, cancelled: () -> Boolean): SourceInfo {
         val source = StationSource.BTSEARCH
         val order = DbOperators.ALL.filter { it.mnc in mncs }
             .sortedBy { op -> preferred.indexOf(op.mnc).let { if (it < 0) Int.MAX_VALUE else it } }
         if (order.isEmpty()) throw ImportException("Nie wybrano operatorów")
-        var ops = order.map { OperatorProgress(it.mnc, it.name, OperatorProgress.Status.PENDING) }
+        val updated = db.operatorUpdated(source)
+        val counts = db.cellsPerOperator(source)
+        val now = System.currentTimeMillis()
+        // Operators with fresh data are not downloaded again.
+        fun isFresh(mnc: Int) = updated[mnc]?.let { maxAgeMs > 0 && now - it < maxAgeMs } == true
+        var ops = order.map {
+            if (isFresh(it.mnc)) OperatorProgress(it.mnc, it.name, OperatorProgress.Status.DONE, cells = counts[it.mnc] ?: 0)
+            else OperatorProgress(it.mnc, it.name, OperatorProgress.Status.PENDING)
+        }
         fun publish(waiting: Long? = (state.value as? ImportState.Running)?.waitingUntil) {
             val total = ops.sumOf { it.total }
             _state.value = ImportState.Running(source, ops.sumOf { it.done }, total, ops.sumOf { it.cells }, waiting, ops)
         }
         publish(null)
 
-        val bandLabels = runCatching { BtsearchImporter.bandLabels(cancelled) }.getOrDefault(emptyMap())
         val present = db.cellsPerOperator(source).keys.toMutableSet()
+        // Nothing to fetch: no request at all.
+        if (order.all { isFresh(it.mnc) } && (present - mncs).isEmpty()) {
+            publish(null)
+            return db.info(source) ?: throw ImportException("Brak danych")
+        }
+        val bandLabels = runCatching { BtsearchImporter.bandLabels(cancelled) }.getOrDefault(emptyMap())
         // Drop operators the user no longer wants.
         (present - mncs).forEach { mnc -> db.replaceOperator(source, mnc, (present - mnc).sorted().joinToString(",")) { } }
         present.retainAll(mncs)
 
         var info: SourceInfo? = null
         for ((index, op) in order.withIndex()) {
+            if (isFresh(op.mnc)) continue
             ops = ops.mapIndexed { i, p -> if (i == index) p.copy(status = OperatorProgress.Status.RUNNING) else p }
             publish()
             val progress = object : ImportProgress {
@@ -215,6 +236,13 @@ class StationRepository(context: Context) {
         override fun waiting(untilMillis: Long?) {
             _state.update { if (it is ImportState.Running) it.copy(waitingUntil = untilMillis) else it }
         }
+    }
+
+    /** Operators of [source] that would be downloaded now: missing ones and those older than [maxAgeMs]. */
+    fun staleOperators(source: StationSource, mncs: Set<Int>, maxAgeMs: Long): Set<Int> {
+        val updated = runCatching { db.operatorUpdated(source) }.getOrDefault(emptyMap())
+        val now = System.currentTimeMillis()
+        return mncs.filterTo(mutableSetOf()) { mnc -> updated[mnc]?.let { maxAgeMs <= 0 || now - it >= maxAgeMs } ?: true }
     }
 
     /** Cells per operator in [source], for the settings screen. */

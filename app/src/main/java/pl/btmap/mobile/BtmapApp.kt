@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import pl.btmap.core.BtmapCore
 import kotlinx.coroutines.withContext
+import pl.btmap.core.stations.StationSource
 import pl.btmap.mobile.settings.SettingsStore
 import pl.btmap.mobile.work.DatabaseWorker
 
@@ -31,10 +32,15 @@ class BtmapApp : Application() {
         scope.launch {
             settings.settings.map { it.database }.distinctUntilChanged().collect { source ->
                 core.stations.setSource(source)
-                // A database that was never downloaded is fetched right away.
-                if (withContext(Dispatchers.IO) { core.stations.info(source) } == null) {
-                    DatabaseWorker.runNow(this@BtmapApp, settings.settings.value)
+                // Fetch right away only what is missing or outdated; fresh operators are never re-downloaded.
+                val s = settings.settings.value
+                val needed = withContext(Dispatchers.IO) {
+                    when (source) {
+                        StationSource.BTMAP -> core.stations.info(source) == null
+                        StationSource.BTSEARCH -> core.stations.staleOperators(source, s.btsearchMncs, DatabaseWorker.maxAgeMs(s)).isNotEmpty()
+                    }
                 }
+                if (needed) DatabaseWorker.runNow(this@BtmapApp, s)
             }
         }
         scope.launch {

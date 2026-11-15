@@ -34,7 +34,7 @@ data class DbSite(
  * nationwide import (hundreds of thousands of cells) small. WAL mode lets lookups run while an
  * import rewrites a source inside one transaction, so a failed download never leaves a half table.
  */
-class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "stations.db", null, 2) {
+class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "stations.db", null, 3) {
 
     init {
         setWriteAheadLoggingEnabled(true)
@@ -52,11 +52,13 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
         db.execSQL("CREATE INDEX cells_node ON cells(src, mcc, mnc, rat, node)")
         db.execSQL("CREATE INDEX sites_src ON sites(src)")
         db.execSQL(PHYS_INDEX)
+        db.execSQL(OP_META)
         db.execSQL("CREATE TABLE meta(src INTEGER PRIMARY KEY, updated INTEGER, sites INTEGER, cells INTEGER, detail TEXT)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL(PHYS_INDEX)
+        if (oldVersion < 3) db.execSQL(OP_META)
     }
 
     /** A cell matched by channel + PCI, with its identity and site. */
@@ -100,6 +102,8 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
 
     private companion object {
         const val PHYS_INDEX = "CREATE INDEX IF NOT EXISTS cells_phys ON cells(src, mcc, mnc, rat, ch, pci)"
+        /** When each operator of a source was last downloaded, so fresh ones are not fetched again. */
+        const val OP_META = "CREATE TABLE IF NOT EXISTS op_meta(src INTEGER NOT NULL, mnc INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(src, mnc))"
     }
 
     fun info(source: StationSource): SourceInfo? =
@@ -168,7 +172,17 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
         try {
             val src = source.id.toString()
             db.delete("cells", "src = ? AND mnc = ?", arrayOf(src, mnc.toString()))
-            fill(Writer(db, source))
+            val writer = Writer(db, source)
+            fill(writer)
+            if (writer.cells > 0) {
+                db.insertWithOnConflict(
+                    "op_meta", null,
+                    ContentValues().apply { put("src", source.id); put("mnc", mnc); put("updated", System.currentTimeMillis()) },
+                    SQLiteDatabase.CONFLICT_REPLACE,
+                )
+            } else {
+                db.delete("op_meta", "src = ? AND mnc = ?", arrayOf(src, mnc.toString()))
+            }
             // Sites left without cells belonged only to the replaced operator's old data.
             db.execSQL("DELETE FROM sites WHERE src = ? AND NOT EXISTS (SELECT 1 FROM cells c WHERE c.site = sites.id)", arrayOf(src))
             val sites = db.rawQuery("SELECT COUNT(*) FROM sites WHERE src = ?", arrayOf(src)).use { it.moveToFirst(); it.getInt(0) }
@@ -189,6 +203,16 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
         }
     }
 
+    /** Last download time per operator (MNC) of [source]; older data falls back to the source's time. */
+    fun operatorUpdated(source: StationSource): Map<Int, Long> {
+        val src = source.id.toString()
+        val own = readableDatabase.rawQuery("SELECT mnc, updated FROM op_meta WHERE src = ?", arrayOf(src)).use {
+            buildMap { while (it.moveToNext()) put(it.getInt(0), it.getLong(1)) }
+        }
+        val fallback = info(source)?.updatedAtMillis ?: return own
+        return cellsPerOperator(source).keys.associateWith { own[it] ?: fallback }
+    }
+
     /** Cells stored per operator (MNC) for [source]. */
     fun cellsPerOperator(source: StationSource): Map<Int, Int> =
         readableDatabase.rawQuery("SELECT mnc, COUNT(*) FROM cells WHERE src = ? GROUP BY mnc", arrayOf(source.id.toString())).use {
@@ -197,6 +221,7 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
 
     fun clear(source: StationSource) {
         replace(source, null) { }
+        writableDatabase.delete("op_meta", "src = ?", arrayOf(source.id.toString()))
         writableDatabase.delete("meta", "src = ?", arrayOf(source.id.toString()))
     }
 
