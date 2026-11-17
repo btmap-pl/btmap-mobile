@@ -397,18 +397,24 @@ private fun createMap(context: Context, dark: Boolean): MapView {
         maxZoomLevel = 19.0
         controller.setZoom(13.0)
         controller.setCenter(GeoPoint(52.2297, 21.0122))
-        // Dark theme: invert the OSM tiles and tone them down, so the map matches the app.
-        if (dark) overlayManager.tilesOverlay.setColorFilter(
-            android.graphics.ColorMatrixColorFilter(
-                floatArrayOf(
-                    -0.85f, 0f, 0f, 0f, 235f,
-                    0f, -0.85f, 0f, 0f, 240f,
-                    0f, 0f, -0.85f, 0f, 238f,
-                    0f, 0f, 0f, 1f, 0f,
-                ),
-            ),
-        )
+        // Dark theme: grey-scale first, then invert. Inverting colours directly turns parks and
+        // forests magenta/purple; a neutral dark-grey map lets the operator colours stand out.
+        if (dark) overlayManager.tilesOverlay.setColorFilter(darkMapFilter())
     }
+}
+
+private fun darkMapFilter(): android.graphics.ColorMatrixColorFilter {
+    val grey = android.graphics.ColorMatrix().apply { setSaturation(0f) }
+    val invert = android.graphics.ColorMatrix(
+        floatArrayOf(
+            -0.78f, 0f, 0f, 0f, 222f,
+            0f, -0.78f, 0f, 0f, 224f,
+            0f, 0f, -0.78f, 0f, 226f,
+            0f, 0f, 0f, 1f, 0f,
+        ),
+    )
+    invert.preConcat(grey)
+    return android.graphics.ColorMatrixColorFilter(invert)
 }
 
 /** Coverage PNG tiles from the BTMap server; the cache key includes the filter and data version. */
@@ -496,7 +502,8 @@ private class StationsOverlay(private val onTap: (StationDb.MapSite) -> Unit) : 
         }
 
         val mine = me
-        for (c in connected) {
+        // The coverage map shows coverage only; stations and links belong to the transmitter map.
+        if (showStations) for (c in connected) {
             proj.toPixels(GeoPoint(c.lat, c.lng), p)
             if (mine != null) {
                 proj.toPixels(mine, q)
