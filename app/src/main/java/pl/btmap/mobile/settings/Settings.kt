@@ -31,6 +31,8 @@ data class Settings(
     val dbWifiOnly: Boolean = true,
     /** Use Shizuku (once authorised there) to unlock modem access without a computer. */
     val shizukuEnabled: Boolean = false,
+    /** Sharing coverage measurements: null = not asked yet. */
+    val coverageConsent: Boolean? = null,
 ) {
     companion object {
         val REFRESH_OPTIONS = listOf(1_000L, 2_000L, 5_000L)
@@ -70,6 +72,7 @@ class SettingsStore(context: Context) {
             dbRefreshDays = prefs.getInt("dbRefreshDays", d.dbRefreshDays),
             dbWifiOnly = prefs.getBoolean("dbWifiOnly", d.dbWifiOnly),
             shizukuEnabled = prefs.getBoolean("shizukuEnabled", d.shizukuEnabled),
+            coverageConsent = if (prefs.contains("coverageConsent")) prefs.getBoolean("coverageConsent", false) else null,
         )
     }
 
@@ -87,6 +90,7 @@ class SettingsStore(context: Context) {
             .putInt("dbRefreshDays", s.dbRefreshDays)
             .putBoolean("dbWifiOnly", s.dbWifiOnly)
             .putBoolean("shizukuEnabled", s.shizukuEnabled)
+            .apply { if (s.coverageConsent == null) remove("coverageConsent") else putBoolean("coverageConsent", s.coverageConsent) }
             .apply()
     }
 

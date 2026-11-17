@@ -58,7 +58,7 @@ import pl.btmap.mobile.ui.theme.Btmap
 import pl.btmap.core.BtmapCore
 import pl.btmap.mobile.settings.Settings
 
-private enum class Tab(val title: String) { LIVE("Live"), LOG("Log"), SETTINGS("Ustawienia") }
+private enum class Tab(val title: String) { LIVE("Live"), MAP("Mapa"), LOG("Log"), SETTINGS("Ustawienia") }
 
 /** What fills the content area: a tab, or the details of one log entry. */
 private sealed interface Screen {
@@ -121,6 +121,7 @@ fun AppShell(
                 when (target) {
                     is Screen.TabScreen -> when (target.tab) {
                         Tab.LIVE -> LiveScreen(state, stationUrl, tabPadding, settings.showNeighbours)
+                        Tab.MAP -> MapScreen(state, settings.apiBaseUrl, stationUrl, tabPadding)
                         Tab.SETTINGS -> SettingsScreen(settings, onSettingsChange, core, log.size, tabPadding)
                         Tab.LOG -> LogScreen(log, state, tabPadding, { detailKey = it.key }, onClearLog, onNeedStation)
                     }
@@ -188,11 +189,12 @@ private fun BottomBar(current: Tab, onSelect: (Tab) -> Unit, modifier: Modifier 
                     .clip(RoundedCornerShape(18.dp))
                     .background(bg)
                     .clickable(interaction, LocalIndication.current) { onSelect(tab) }
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 when (tab) {
                     Tab.LIVE -> LiveIcon(fg)
+                    Tab.MAP -> MapIcon(fg)
                     Tab.LOG -> LogIcon(fg)
                     Tab.SETTINGS -> SettingsIcon(fg)
                 }

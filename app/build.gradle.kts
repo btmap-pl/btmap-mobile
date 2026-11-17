@@ -44,6 +44,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.shizuku.api)
+    implementation(libs.osmdroid)
     implementation(libs.shizuku.provider)
     implementation(libs.hiddenapibypass)
     implementation(platform(libs.compose.bom))

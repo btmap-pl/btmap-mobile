@@ -436,3 +436,20 @@ fun BandLockIcon(color: Color, modifier: Modifier = Modifier) {
         )
     }
 }
+
+/** Folded map with a pin: map tab. */
+@Composable
+fun MapIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(22.dp)) {
+        val s = 1.7.dp.toPx()
+        val w = size.width
+        val h = size.height
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.08f, h * 0.24f); lineTo(w * 0.36f, h * 0.12f); lineTo(w * 0.64f, h * 0.24f); lineTo(w * 0.92f, h * 0.12f)
+            lineTo(w * 0.92f, h * 0.76f); lineTo(w * 0.64f, h * 0.88f); lineTo(w * 0.36f, h * 0.76f); lineTo(w * 0.08f, h * 0.88f); close()
+        }
+        drawPath(path, color, style = Stroke(s, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        drawLine(color, Offset(w * 0.36f, h * 0.12f), Offset(w * 0.36f, h * 0.76f), s)
+        drawLine(color, Offset(w * 0.64f, h * 0.24f), Offset(w * 0.64f, h * 0.88f), s)
+    }
+}

@@ -34,6 +34,7 @@ import pl.btmap.core.model.CellIdentity
 import pl.btmap.core.model.SimState
 import pl.btmap.core.radio.Bands
 import pl.btmap.core.model.NetworkSnapshot
+import pl.btmap.core.coverage.CoverageRecorder
 import pl.btmap.core.stations.StationRepository
 import pl.btmap.core.telephony.CellDictionary
 import kotlinx.coroutines.withContext
@@ -99,6 +100,12 @@ class BtmapCore(
     /** Downloaded station database (BTMap without UKE, or BTSearch) used for station lookups. */
     val stations = StationRepository(context)
     val log = CellLog(File(context.filesDir, "cell-log.json"))
+
+    /** Crowdsourced coverage measurements, queued for upload. */
+    val coverage = CoverageRecorder(File(context.filesDir, "coverage-queue.json"))
+
+    /** Coverage is recorded only with the user's consent. */
+    @Volatile var coverageEnabled: Boolean = false
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _state = MutableStateFlow(LiveState())
@@ -189,6 +196,7 @@ class BtmapCore(
                         log.record(snap, _state.value.fix)
                         resolveStations(snap)
                         resolveNeighbours(snap)
+                        if (coverageEnabled) coverage.record(_state.value)
                         _samples.tryEmit(_state.value)
                     }
                 }
@@ -212,6 +220,7 @@ class BtmapCore(
                     delay(_mode.value.flushMs)
                     runCatching { dictionary.flush() }
                     runCatching { log.flush() }
+                    runCatching { coverage.flush() }
                 }
             },
         )

@@ -15,6 +15,7 @@ import pl.btmap.mobile.settings.SettingsStore
 import pl.btmap.mobile.tools.BandStore
 import pl.btmap.mobile.tools.NetworkControl
 import pl.btmap.mobile.tools.ShizukuBridge
+import pl.btmap.mobile.work.CoverageUploadWorker
 import pl.btmap.mobile.work.DatabaseWorker
 
 class BtmapApp : Application() {
@@ -30,6 +31,14 @@ class BtmapApp : Application() {
 
     /** Keeps the core in sync with settings that affect it. */
     private fun applySettings(core: BtmapCore) {
+        // Coverage map: record and upload only with the user's consent.
+        scope.launch {
+            settings.settings.map { it.coverageConsent == true }.distinctUntilChanged().collect { on ->
+                core.coverageEnabled = on
+                CoverageUploadWorker.schedule(this@BtmapApp, on)
+                if (!on) withContext(Dispatchers.IO) { core.coverage.clear() }
+            }
+        }
         // Start collecting the bands the modem reports.
         scope.launch { bands }
         scope.launch {

@@ -245,6 +245,10 @@ class StationRepository(context: Context) {
         return mncs.filterTo(mutableSetOf()) { mnc -> updated[mnc]?.let { maxAgeMs <= 0 || now - it >= maxAgeMs } ?: true }
     }
 
+    /** Sites of the selected database in a box, for the map. Off the main thread. */
+    fun sitesIn(south: Double, west: Double, north: Double, east: Double): List<StationDb.MapSite> =
+        runCatching { db.sitesIn(_source.value, south, west, north, east) }.getOrDefault(emptyList())
+
     /** Cells per operator in [source], for the settings screen. */
     fun cellsPerOperator(source: StationSource): Map<Int, Int> = runCatching { db.cellsPerOperator(source) }.getOrDefault(emptyMap())
 

@@ -34,7 +34,7 @@ data class DbSite(
  * nationwide import (hundreds of thousands of cells) small. WAL mode lets lookups run while an
  * import rewrites a source inside one transaction, so a failed download never leaves a half table.
  */
-class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "stations.db", null, 3) {
+class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext, "stations.db", null, 4) {
 
     init {
         setWriteAheadLoggingEnabled(true)
@@ -53,12 +53,14 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
         db.execSQL("CREATE INDEX sites_src ON sites(src)")
         db.execSQL(PHYS_INDEX)
         db.execSQL(OP_META)
+        MAP_INDEXES.forEach(db::execSQL)
         db.execSQL("CREATE TABLE meta(src INTEGER PRIMARY KEY, updated INTEGER, sites INTEGER, cells INTEGER, detail TEXT)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL(PHYS_INDEX)
         if (oldVersion < 3) db.execSQL(OP_META)
+        if (oldVersion < 4) MAP_INDEXES.forEach(db::execSQL)
     }
 
     /** A cell matched by channel + PCI, with its identity and site. */
@@ -102,6 +104,11 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
 
     private companion object {
         const val PHYS_INDEX = "CREATE INDEX IF NOT EXISTS cells_phys ON cells(src, mcc, mnc, rat, ch, pci)"
+        /** Map queries: sites by position, and their cells. */
+        val MAP_INDEXES = listOf(
+            "CREATE INDEX IF NOT EXISTS sites_pos ON sites(src, lat, lng)",
+            "CREATE INDEX IF NOT EXISTS cells_site ON cells(site)",
+        )
         /** When each operator of a source was last downloaded, so fresh ones are not fetched again. */
         const val OP_META = "CREATE TABLE IF NOT EXISTS op_meta(src INTEGER NOT NULL, mnc INTEGER NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY(src, mnc))"
     }
@@ -200,6 +207,28 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
             return info
         } finally {
             db.endTransaction()
+        }
+    }
+
+    /** A site on the map: position, name and the networks (MNC) that use it. */
+    data class MapSite(val id: Long, val lat: Double, val lng: Double, val name: String, val stationId: String?, val mncs: Set<Int>, val ext: String?)
+
+    /** Sites of [source] inside a box, at most [limit]; for the map. */
+    fun sitesIn(source: StationSource, south: Double, west: Double, north: Double, east: Double, limit: Int = 1500): List<MapSite> {
+        val sql = """SELECT s.id, s.lat, s.lng, s.name, s.station, s.ext, GROUP_CONCAT(DISTINCT c.mnc)
+            FROM sites s JOIN cells c ON c.site = s.id
+            WHERE s.src = ? AND s.lat BETWEEN ? AND ? AND s.lng BETWEEN ? AND ?
+            GROUP BY s.id LIMIT ?"""
+        val args = arrayOf(source.id.toString(), south.toString(), north.toString(), west.toString(), east.toString(), limit.toString())
+        return readableDatabase.rawQuery(sql, args).use { c ->
+            buildList {
+                while (c.moveToNext()) add(
+                    MapSite(
+                        c.getLong(0), c.getDouble(1), c.getDouble(2), c.getString(3), c.getString(4),
+                        c.getString(6)?.split(',')?.mapNotNull(String::toIntOrNull)?.toSet().orEmpty(), c.getString(5),
+                    ),
+                )
+            }
         }
     }
 

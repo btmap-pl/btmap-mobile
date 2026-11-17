@@ -1377,6 +1377,13 @@ private fun ModemAccess(core: BtmapCore) {
 
 @Composable
 private fun MeasurementsPage(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {
+    val pending = (LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp).core.coverage.pending
+    ToggleRow(
+        "Mapa zasięgu",
+        if (settings.coverageConsent == true) "Wysyłam anonimowe pomiary · w kolejce: $pending" else "Udostępniaj anonimowe pomiary do wspólnej mapy",
+        settings.coverageConsent == true,
+    ) { on -> onChange { it.copy(coverageConsent = on) } }
+    Spacer(Modifier.height(14.dp))
     Label("Odświeżanie na ekranie")
     Segmented(
         options = Settings.REFRESH_OPTIONS.map { it to "${it / 1000} s" },

@@ -23,5 +23,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     api(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
+    // Real JSON in JVM tests (the Android stub returns nulls).
+    testImplementation(libs.org.json)
     testImplementation(libs.kotlinx.coroutines.test)
 }

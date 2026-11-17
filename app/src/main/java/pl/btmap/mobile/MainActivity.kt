@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.btmap.core.BtmapCore
 import pl.btmap.core.telephony.CellMonitor
 import pl.btmap.mobile.ui.AppShell
+import pl.btmap.mobile.ui.CoverageConsentDialog
 import pl.btmap.mobile.ui.PermissionScreen
 import pl.btmap.mobile.ui.theme.BtmapTheme
 import pl.btmap.mobile.ui.theme.ThemeMode
@@ -97,5 +98,9 @@ private fun Root(core: BtmapCore, settings: Settings, onSettingsChange: ((Settin
         val state by core.state.collectAsStateWithLifecycle()
         val log by core.log.entries.collectAsStateWithLifecycle()
         AppShell(state, log, settings, onSettingsChange, core, core.api::stationUrl, core::clearLog, core::ensureStation)
+        // Asked once: may BTMap use this phone's measurements for the shared coverage map?
+        if (settings.coverageConsent == null) {
+            CoverageConsentDialog { yes -> onSettingsChange { it.copy(coverageConsent = yes) } }
+        }
     }
 }
