@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -119,8 +120,15 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
     val stationsOverlay = remember { StationsOverlay { site -> selected = site } }
     var coverageOverlay by remember { mutableStateOf<TilesOverlay?>(null) }
 
-    // Coverage filter list.
-    LaunchedEffect(apiBase, mode) {
+    // Coverage filter list: on opening the coverage map, send this phone's queued measurements
+    // first, and reload whenever an upload lands.
+    val uploads by app.core.coverageUploads.collectAsStateWithLifecycle()
+    LaunchedEffect(mode) {
+        if (mode == MapMode.COVERAGE && app.settings.settings.value.coverageConsent == true) {
+            pl.btmap.mobile.work.CoverageUploadWorker.runNow(context)
+        }
+    }
+    LaunchedEffect(apiBase, mode, uploads) {
         if (mode != MapMode.COVERAGE) return@LaunchedEffect
         withContext(Dispatchers.IO) { runCatching { fetchMeta(apiBase) }.getOrNull() }?.let { (v, l) -> version = v; layers = l }
     }
@@ -264,6 +272,16 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
                             style = MaterialTheme.typography.bodySmall, color = colors.muted,
                         )
                     }
+                    val consent = app.settings.settings.value.coverageConsent == true
+                    val pending = remember(uploads, state.snapshot.timestampMillis) { app.core.coverage.pending }
+                    Text(
+                        when {
+                            !consent -> "Twoje pomiary nie są wysyłane — włącz w Ustawienia → Pomiary"
+                            pending > 0 -> "Twoje pomiary czekające na wysłanie: $pending (wysyłka przez Wi-Fi)"
+                            else -> "Twoje pomiary są wysłane"
+                        },
+                        style = MaterialTheme.typography.labelSmall, color = colors.faint,
+                    )
                 }
             }
 

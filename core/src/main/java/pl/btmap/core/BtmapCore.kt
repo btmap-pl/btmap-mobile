@@ -104,6 +104,14 @@ class BtmapCore(
     /** Crowdsourced coverage measurements, queued for upload. */
     val coverage = CoverageRecorder(File(context.filesDir, "coverage-queue.json"))
 
+    private val _coverageUploads = MutableStateFlow(0)
+    /** Bumped after every successful coverage upload, so the map reloads its tiles. */
+    val coverageUploads: StateFlow<Int> = _coverageUploads.asStateFlow()
+
+    fun coverageUploaded(sent: Int) {
+        if (sent > 0) _coverageUploads.update { it + 1 }
+    }
+
     /** Coverage is recorded only with the user's consent. */
     @Volatile var coverageEnabled: Boolean = false
 
