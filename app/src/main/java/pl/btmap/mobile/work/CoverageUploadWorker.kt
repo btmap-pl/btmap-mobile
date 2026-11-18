@@ -11,7 +11,7 @@ import androidx.work.WorkerParameters
 import pl.btmap.mobile.BtmapApp
 import java.util.concurrent.TimeUnit
 
-/** Sends queued coverage measurements to BTMap, every half hour on Wi-Fi, never on low battery. */
+/** Sends queued coverage measurements to BTMap over any connection (a batch is a few kB), never on low battery. */
 class CoverageUploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val app = applicationContext as BtmapApp
@@ -28,10 +28,10 @@ class CoverageUploadWorker(context: Context, params: WorkerParameters) : Corouti
         private const val NAME = "coverage-upload"
         private const val NOW = "coverage-upload-now"
 
-        /** Sends the queue now (still Wi-Fi only), e.g. on start or when the coverage map opens. */
+        /** Sends the queue now, e.g. on start or when the coverage map opens. */
         fun runNow(context: Context) {
             val request = androidx.work.OneTimeWorkRequestBuilder<CoverageUploadWorker>()
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).build())
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(NOW, androidx.work.ExistingWorkPolicy.KEEP, request)
         }
@@ -44,7 +44,7 @@ class CoverageUploadWorker(context: Context, params: WorkerParameters) : Corouti
             }
             val request = PeriodicWorkRequestBuilder<CoverageUploadWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(
-                    Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).setRequiresBatteryNotLow(true).build(),
+                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).setRequiresBatteryNotLow(true).build(),
                 )
                 .build()
             wm.enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, request)

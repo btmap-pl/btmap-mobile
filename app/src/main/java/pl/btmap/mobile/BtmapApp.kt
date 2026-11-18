@@ -20,10 +20,10 @@ import pl.btmap.mobile.work.CoverageUploadWorker
 import pl.btmap.mobile.work.DatabaseWorker
 
 class BtmapApp : Application() {
-    private fun isUnmetered(): Boolean {
+    private fun isOnline(): Boolean {
         val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return false
         val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
-        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     val settings: SettingsStore by lazy { SettingsStore(this) }
@@ -39,12 +39,12 @@ class BtmapApp : Application() {
     /** Keeps the core in sync with settings that affect it. */
     private fun applySettings(core: BtmapCore) {
         // Coverage uploads from the running app (MIUI often holds back background jobs): every two
-        // minutes, when something is queued and the phone is on an unmetered network such as Wi-Fi.
+        // minutes when something is queued, over Wi-Fi or mobile data (a batch is a few kB).
         scope.launch {
             delay(5_000)
             while (true) {
                 val s = settings.settings.value
-                if (s.coverageConsent == true && core.coverage.pending > 0 && isUnmetered()) {
+                if (s.coverageConsent == true && core.coverage.pending > 0 && isOnline()) {
                     val sent = runCatching { core.coverage.upload(s.apiBaseUrl) }.getOrDefault(0)
                     core.coverageUploaded(sent)
                 }

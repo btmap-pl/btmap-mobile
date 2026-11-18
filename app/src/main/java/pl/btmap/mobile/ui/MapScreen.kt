@@ -277,7 +277,7 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
                     Text(
                         when {
                             !consent -> "Twoje pomiary nie są wysyłane — włącz w Ustawienia → Pomiary"
-                            pending > 0 -> "Twoje pomiary czekające na wysłanie: $pending (wysyłka przez Wi-Fi)"
+                            pending > 0 -> "Twoje pomiary czekające na wysłanie: $pending"
                             else -> "Twoje pomiary są wysłane"
                         },
                         style = MaterialTheme.typography.labelSmall, color = colors.faint,

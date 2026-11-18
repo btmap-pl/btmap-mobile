@@ -28,7 +28,7 @@ fun CoverageConsentDialog(onAnswer: (Boolean) -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 Text("Wysyłamy: operatora, technologię, pasmo, siłę sygnału i miejsce pomiaru.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
                 Text("Nie wysyłamy: numeru telefonu, ID urządzenia, konta ani tras — serwer zapisuje tylko liczniki w kwadratach ~100 m.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
-                Text("Pomiary idą paczkami przez Wi-Fi. Możesz to wyłączyć w Ustawienia → Pomiary.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+                Text("Pomiary idą małymi paczkami (kilka kB) przez Wi-Fi lub dane komórkowe. Możesz to wyłączyć w Ustawienia → Pomiary.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
             }
         },
         confirmButton = { TextButton(onClick = { onAnswer(true) }) { Text("Zgadzam się", color = Btmap.colors.accent, fontWeight = FontWeight.Bold) } },
