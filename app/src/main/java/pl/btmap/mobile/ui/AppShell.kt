@@ -55,6 +55,7 @@ import pl.btmap.core.LogEntry
 import pl.btmap.core.api.Station
 import pl.btmap.core.model.CellIdentity
 import pl.btmap.mobile.ui.theme.Btmap
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.btmap.core.BtmapCore
 import pl.btmap.mobile.settings.Settings
 
@@ -123,7 +124,10 @@ fun AppShell(
                         Tab.LIVE -> LiveScreen(state, stationUrl, tabPadding, settings.showNeighbours)
                         Tab.MAP -> MapScreen(state, settings.apiBaseUrl, stationUrl, tabPadding)
                         Tab.SETTINGS -> SettingsScreen(settings, onSettingsChange, core, log.size, tabPadding)
-                        Tab.LOG -> LogScreen(log, state, tabPadding, { detailKey = it.key }, onClearLog, onNeedStation)
+                        Tab.LOG -> {
+                            val events by core.events.events.collectAsStateWithLifecycle()
+                            LogTabs(events, tabPadding) { pad -> LogScreen(log, state, pad, { detailKey = it.key }, onClearLog, onNeedStation) }
+                        }
                     }
                     is Screen.Detail -> {
                         // Keep showing the last known entry even if the log was cleared meanwhile.

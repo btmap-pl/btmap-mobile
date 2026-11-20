@@ -101,6 +101,9 @@ class BtmapCore(
     val stations = StationRepository(context)
     val log = CellLog(File(context.filesDir, "cell-log.json"))
 
+    /** Timeline of serving-cell changes (handover, PCI, band, loss of service). */
+    val events = CellEventLog(File(context.filesDir, "cell-events.json"))
+
     /** Crowdsourced coverage measurements, queued for upload. */
     val coverage = CoverageRecorder(File(context.filesDir, "coverage-queue.json"))
 
@@ -125,7 +128,7 @@ class BtmapCore(
     private val failedAt = mutableMapOf<NodeKey, Long>()
 
     init {
-        scope.launch(Dispatchers.IO) { log.loadFromDisk() }
+        scope.launch(Dispatchers.IO) { log.loadFromDisk(); events.loadFromDisk() }
         // New data or another database: forget resolved stations so cells are looked up again.
         scope.launch {
             stations.version.collect {
@@ -140,7 +143,11 @@ class BtmapCore(
     /** Empties the cell log, on disk too. */
     fun clearLog() {
         log.clear()
-        scope.launch(Dispatchers.IO) { runCatching { log.flush() } }
+        events.clear()
+        scope.launch(Dispatchers.IO) {
+            runCatching { log.flush() }
+            runCatching { events.flush() }
+        }
     }
 
     /** Looks up the BTMap station of a cell that is not being served right now (e.g. from the log). */
@@ -200,6 +207,8 @@ class BtmapCore(
             scope.launch {
                 monitor.snapshots().collect { snap ->
                     _state.update { it.copy(snapshot = snap) }
+                    // Every snapshot, not just the throttled samples: no change may slip through.
+                    events.record(snap, _state.value.fix)
                     if (shouldSample(snap)) {
                         log.record(snap, _state.value.fix)
                         resolveStations(snap)
@@ -228,6 +237,7 @@ class BtmapCore(
                     delay(_mode.value.flushMs)
                     runCatching { dictionary.flush() }
                     runCatching { log.flush() }
+                    runCatching { events.flush() }
                     runCatching { coverage.flush() }
                 }
             },
@@ -260,6 +270,7 @@ class BtmapCore(
         scope.launch(Dispatchers.IO) {
             runCatching { dictionary.flush() }
             runCatching { log.flush() }
+                    runCatching { events.flush() }
         }
         _state.update { it.copy(running = false) }
     }
