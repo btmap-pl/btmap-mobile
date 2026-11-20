@@ -20,6 +20,11 @@ import pl.btmap.mobile.work.CoverageUploadWorker
 import pl.btmap.mobile.work.DatabaseWorker
 
 class BtmapApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        CrashReporter.install(this)
+    }
+
     private fun isOnline(): Boolean {
         val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return false
         val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false

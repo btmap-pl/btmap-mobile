@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -100,7 +101,11 @@ class CellMonitor(
         trySend(current())
         subscriptions.addOnSubscriptionsChangedListener(executor, listener)
         awaitClose { subscriptions.removeOnSubscriptionsChangedListener(listener) }
-    }.distinctUntilChanged { a, b -> a.map { it.subscriptionId } == b.map { it.subscriptionId } }
+    }
+        // Before Android 14 the listener's constructor creates a Handler on the current thread and
+        // crashes on a thread without a Looper (seen on Samsung A22, Android 13): build it on main.
+        .flowOn(kotlinx.coroutines.Dispatchers.Main)
+        .distinctUntilChanged { a, b -> a.map { it.subscriptionId } == b.map { it.subscriptionId } }
 
     /** Raw inputs for one SIM, merged into a [SimState] on every change. */
     private class Inputs {
