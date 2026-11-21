@@ -22,7 +22,7 @@ data class Settings(
     /** Show neighbour cells on the Live screen. */
     val showNeighbours: Boolean = true,
     /** Station database used for lookups. */
-    val database: StationSource = StationSource.BTMAP,
+    val database: StationSource = StationSource.BTSEARCH,
     /** BTSearch: operators (MNC) to keep. */
     val btsearchMncs: Set<Int> = DbOperators.DEFAULT_MNCS,
     /** Days between automatic database downloads; 0 = only by hand. */
@@ -48,6 +48,12 @@ class SettingsStore(context: Context) {
 
     init {
         migrateTheme(context)
+        // The BTMap station source has no stations outside UKE yet; installs that never chose a
+        // source deliberately move to BTSearch so stations and neighbours get names.
+        if (!prefs.getBoolean("dbDefaultV2", false)) {
+            if (_settings.value.database == StationSource.BTMAP) update { it.copy(database = StationSource.BTSEARCH) }
+            prefs.edit().putBoolean("dbDefaultV2", true).apply()
+        }
     }
 
     fun update(change: (Settings) -> Settings) {

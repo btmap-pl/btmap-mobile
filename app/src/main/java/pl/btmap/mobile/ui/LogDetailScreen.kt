@@ -179,10 +179,10 @@ fun LogDetailScreen(
         // Station
         if (station != null) {
             StationCard(station, entry, stationUrl, Modifier.enterAnimation(5))
-        } else if (isNode && id.nodeId != null) {
+        } else if (pl.btmap.core.api.NodeKey.of(id) != null) {
             DetailCard(Modifier.enterAnimation(5)) {
                 CardTitle("Stacja")
-                Text("Ten ${if (id.rat == Rat.NR) "gNB" else "eNB"} nie jest jeszcze powiązany ze stacją w BTMap.", color = Btmap.colors.muted)
+                Text("Tej komórki nie ma jeszcze w pobranej bazie stacji.", color = Btmap.colors.muted)
             }
         }
 

@@ -47,8 +47,15 @@ data class NodeKey(val plmn: Plmn, val rat: Rat, val nodeId: Long) {
         fun of(cell: Cell): NodeKey? = of(cell.identity)
 
         fun of(id: CellIdentity): NodeKey? {
-            if (id.rat != Rat.LTE && id.rat != Rat.NR) return null
-            return NodeKey(id.plmn ?: return null, id.rat, id.nodeId ?: return null)
+            val plmn = id.plmn ?: return null
+            return when (id.rat) {
+                Rat.LTE, Rat.NR -> NodeKey(plmn, id.rat, id.nodeId ?: return null)
+                // 2G/3G have no eNB: the cell itself identifies the site. LAC in the high bits, CI low.
+                Rat.WCDMA, Rat.GSM -> {
+                    val ci = id.cid ?: return null
+                    NodeKey(plmn, id.rat, ((id.areaCode ?: 0).toLong() shl 32) or (ci and 0xFFFFFFFFL))
+                }
+            }
         }
     }
 }

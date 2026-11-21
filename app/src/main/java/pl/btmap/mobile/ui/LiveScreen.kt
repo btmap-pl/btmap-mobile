@@ -468,13 +468,14 @@ private fun IdentityGrid(cell: Cell, bandwidth: String? = null) {
 
 @Composable
 private fun StationBlock(cell: Cell, state: LiveState, stationUrl: (Station) -> String) {
-    if (cell.rat != Rat.LTE && cell.rat != Rat.NR) return
+    // Every technology: LTE/NR by eNB/gNB, 3G by RNC + cell id, 2G by LAC + cell id.
+    if (pl.btmap.core.api.NodeKey.of(cell) == null) return
     val station = state.stationOf(cell)
     val context = LocalContext.current
     Spacer(Modifier.height(16.dp))
     if (station == null) {
         Text(
-            if (cell.identity.nodeId == null) "" else if (state.isLookedUp(cell)) "Brak tej stacji w pobranej bazie" else "Szukam stacji…",
+            if (state.isLookedUp(cell)) "Brak tej stacji w pobranej bazie" else "Szukam stacji…",
             style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
         )
         return

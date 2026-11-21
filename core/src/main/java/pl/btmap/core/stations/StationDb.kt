@@ -119,6 +119,34 @@ class StationDb(context: Context) : SQLiteOpenHelper(context.applicationContext,
         }
 
     /** Site serving [node] of the given network, with every channel seen on it. */
+    /**
+     * Site of a 2G/3G cell: by RNC + cell id (UMTS) or cell id alone (GSM), preferring the row whose
+     * LAC matches, since short cell ids repeat across the country.
+     */
+    fun findCell(source: StationSource, mcc: Int, mnc: Int, rat: Rat, node: Long?, cid: Long, area: Int?): DbSite? {
+        val sql = """SELECT s.station, s.name, s.lat, s.lng, s.ext, GROUP_CONCAT(DISTINCT c.ch), s.bands, MAX(c.area = ?)
+            FROM cells c JOIN sites s ON s.id = c.site
+            WHERE c.src = ? AND c.mcc = ? AND c.mnc = ? AND c.rat = ? AND c.cid = ?
+              AND (? = -1 OR c.node = ?)
+            GROUP BY c.site ORDER BY MAX(c.area = ?) DESC, COUNT(*) DESC LIMIT 2"""
+        val args = arrayOf(
+            (area ?: -1).toString(),
+            source.id.toString(), mcc.toString(), mnc.toString(), rat.ordinal.toString(), cid.toString(),
+            (node ?: -1).toString(), (node ?: -1).toString(), (area ?: -1).toString(),
+        )
+        return readableDatabase.rawQuery(sql, args).use {
+            if (!it.moveToFirst()) return null
+            // Several sites share this id and none has the phone's LAC: ambiguous, no guess.
+            if (it.count > 1 && it.getInt(7) != 1) return null
+            DbSite(
+                stationId = it.getString(0), name = it.getString(1), lat = it.getDouble(2), lng = it.getDouble(3),
+                externalId = it.getString(4),
+                channels = it.getString(5)?.split(',')?.mapNotNull(String::toIntOrNull).orEmpty(),
+                bands = it.getString(6)?.split(',')?.filter(String::isNotBlank).orEmpty(),
+            )
+        }
+    }
+
     fun findNode(source: StationSource, mcc: Int, mnc: Int, rat: Rat, node: Long): DbSite? {
         val db = readableDatabase
         val sql = """SELECT s.station, s.name, s.lat, s.lng, s.ext, GROUP_CONCAT(DISTINCT c.ch), s.bands

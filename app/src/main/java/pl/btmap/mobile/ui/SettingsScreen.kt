@@ -1536,6 +1536,15 @@ private fun About() {
     ActionButton("Kod źródłowy na GitHubie") {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/btmap-pl/btmap-mobile")))
     }
+    Spacer(Modifier.height(10.dp))
+    var saved by remember { mutableStateOf<String?>(null) }
+    ActionButton("Zapisz diagnostykę") {
+        saved = runCatching { pl.btmap.mobile.Diagnostics.save(context) }.getOrNull() ?: "błąd zapisu"
+    }
+    saved?.let {
+        Spacer(Modifier.height(6.dp))
+        Hint("Zapisano w Pobranych: $it")
+    }
 }
 
 // ---- Building blocks -----------------------------------------------------------------------

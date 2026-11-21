@@ -91,8 +91,23 @@ class StationRepository(context: Context) {
     /** Station of a node in the selected database, or null. Call off the main thread. */
     fun find(key: NodeKey): Station? {
         val source = _source.value
+        val mcc = key.plmn.mcc.toInt()
+        val mnc = key.plmn.mnc.toInt()
         val site = runCatching {
-            db.findNode(source, key.plmn.mcc.toInt(), key.plmn.mnc.toInt(), key.rat, key.nodeId)
+            when (key.rat) {
+                Rat.LTE, Rat.NR -> db.findNode(source, mcc, mnc, key.rat, key.nodeId)
+                Rat.WCDMA, Rat.GSM -> {
+                    val area = (key.nodeId ushr 32).toInt().takeIf { it > 0 }
+                    val ci = key.nodeId and 0xFFFFFFFFL
+                    if (key.rat == Rat.WCDMA && ci > 0xFFFF) {
+                        // 28-bit UMTS cell identity = RNC · 65536 + cell id.
+                        db.findCell(source, mcc, mnc, key.rat, ci shr 16, ci and 0xFFFF, area)
+                            ?: db.findCell(source, mcc, mnc, key.rat, null, ci, area)
+                    } else {
+                        db.findCell(source, mcc, mnc, key.rat, null, ci, area)
+                    }
+                }
+            }
         }.getOrNull() ?: return null
         return toStation(source, key, site)
     }
