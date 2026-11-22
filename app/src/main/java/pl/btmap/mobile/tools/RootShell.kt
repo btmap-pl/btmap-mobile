@@ -33,12 +33,35 @@ object RootShell {
             w.write(command.joinToString(" ") { quote(it) })
             w.write("\nexit\n")
         }
-        if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
-            process.destroy()
-            return@runCatching -1 to ""
-        }
-        process.exitValue() to process.inputStream.bufferedReader().readText()
+        collect(process, timeoutSeconds)
     }.getOrDefault(-1 to "")
+
+    /**
+     * Waits for [process] while reading its output. Reading only after it exits deadlocks on large
+     * output (`getprop`, `dumpsys`): the process blocks on a full pipe and never exits.
+     */
+    fun collect(process: Process, timeoutSeconds: Long): Pair<Int, String> {
+        val out = StringBuilder()
+        val reader = Thread {
+            runCatching {
+                process.inputStream.bufferedReader().use { r ->
+                    val buf = CharArray(8192)
+                    while (true) {
+                        val n = r.read(buf)
+                        if (n < 0) break
+                        synchronized(out) { if (out.length < MAX_OUTPUT) out.append(buf, 0, n) }
+                    }
+                }
+            }
+        }.apply { isDaemon = true; start() }
+        val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+        if (!finished) process.destroy()
+        reader.join(2_000)
+        val text = synchronized(out) { out.toString() }
+        return (if (finished) process.exitValue() else -1) to text
+    }
+
+    private const val MAX_OUTPUT = 2_000_000
 
     private fun quote(arg: String) =
         if (arg.all { it.isLetterOrDigit() || it in "-_./:=,@" }) arg else "'" + arg.replace("'", "'\\''") + "'"

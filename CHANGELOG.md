@@ -4,6 +4,18 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.0-beta.8] - 2026-11-22
+
+### Added
+- **DIAG ping in modem diagnostics** (root): newer Snapdragons have no /dev/diag; the modem's
+  diagnostic channel is an MHI pipe. The check finds it, shows which process holds it and sends
+  the harmless version request in both DIAG framings, printing any reply. Nothing in the modem is
+  changed.
+
+### Fixed
+- Diagnostics run through root came out empty for large outputs (system properties, telephony
+  registry): the output is now read while the command runs instead of after it.
+
 ## [0.1.0-beta.7] - 2026-11-22
 
 ### Added
@@ -113,6 +125,7 @@ The first public beta.
   BTMap station source are not available to testers until the API is publicly deployed.
 - Band locking targets MediaTek modems.
 
+[0.1.0-beta.8]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.6
 [0.1.0-beta.5]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.5
