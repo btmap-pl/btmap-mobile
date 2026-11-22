@@ -4,6 +4,13 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- 5G NSA carriers on MediaTek phones were all shown as n1 (the modem reports band 1 for
+  every NR carrier). The band now comes from the NR-ARFCN; the modem's band is used only
+  when it matches the frequency. 2600 TDD is shown as n41.
+
 ## [0.1.0-beta.2] - 2026-11-22
 
 ### Added

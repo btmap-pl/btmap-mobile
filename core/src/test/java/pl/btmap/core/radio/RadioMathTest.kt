@@ -78,4 +78,21 @@ class RadioMathTest {
         assertEquals(1, CellMath.sector(11))
         assertEquals(3, CellMath.sector(13))
     }
+
+    @Test
+    fun `wrong band from the modem is ignored`() {
+        // MediaTek reports n1 for every NSA carrier; values from a POCO X6 Pro log.
+        val n1 = intArrayOf(1)
+        assertEquals(78, Bands.nr(640704, n1)!!.number) // Orange 3610 MHz
+        assertEquals(41, Bands.nr(518910, n1)!!.number) // Plus 2600 TDD
+        assertEquals("2600", Bands.nr(518910, n1)!!.label)
+        assertEquals(28, Bands.nr(152690, n1)!!.number) // 700 MHz
+        assertEquals(1, Bands.nr(428910, n1)!!.number) // real n1, 2100 MHz
+        // A band the modem reports that does contain the frequency still wins.
+        assertEquals(38, Bands.nr(518910, intArrayOf(38))!!.number)
+        assertEquals(20, Bands.nrAt(800.0, intArrayOf(20))!!.number)
+        // No channel but a reported downlink frequency (PhysicalChannelConfig).
+        assertEquals(78, Bands.nrAt(3610.56, n1)!!.number)
+        assertNull(Bands.nrAt(null, n1)?.takeIf { it.number != 1 })
+    }
 }

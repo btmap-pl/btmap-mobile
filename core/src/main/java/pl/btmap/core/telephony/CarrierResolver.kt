@@ -76,8 +76,9 @@ object CarrierResolver {
             Rat.GSM -> Bands.gsm(pc.channel)
         }
         if (fromChannel != null) return fromChannel
-        val number = pc.band ?: return null
         val mhz = pc.downlinkKhz?.let { it / 1000.0 }
+        if (pc.rat == Rat.NR) return Bands.nrAt(mhz, reported)
+        val number = pc.band ?: return null
         return Band(pc.rat, number, Bands.ukeLabel(mhz) ?: (if (pc.rat == Rat.NR) "n$number" else "B$number"), mhz)
     }
 

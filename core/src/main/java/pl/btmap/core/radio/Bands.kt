@@ -38,8 +38,10 @@ object Bands {
         NrBand(3, 1805.0, 1880.0),
         NrBand(1, 2110.0, 2170.0),
         NrBand(40, 2300.0, 2400.0),
-        NrBand(38, 2570.0, 2620.0),
         NrBand(7, 2620.0, 2690.0),
+        // 2600 TDD: NR networks use n41; n38 is its LTE-era subset.
+        NrBand(41, 2496.0, 2690.0),
+        NrBand(38, 2570.0, 2620.0),
         NrBand(78, 3300.0, 3800.0),
         NrBand(77, 3300.0, 4200.0),
         NrBand(258, 24250.0, 27500.0),
@@ -93,11 +95,22 @@ object Bands {
 
     fun nr(nrarfcn: Int?, reportedBands: IntArray? = null): Band? {
         if (nrarfcn == null || nrarfcn < 0) return null
-        val mhz = nrMhz(nrarfcn)
-        val fromTable = mhz?.let { f -> NR.firstOrNull { f >= it.minMhz && f <= it.maxMhz }?.band }
-        // The modem knows better than a frequency table when bands overlap (n7/n38/n41, n77/n78).
-        val reported = reportedBands?.firstOrNull { it > 0 }
-        val number = reported ?: fromTable ?: return null
+        return nrAt(nrMhz(nrarfcn), reportedBands)
+    }
+
+    /**
+     * NR band at a downlink frequency. A band reported by the modem wins where bands overlap
+     * (n7/n38/n41, n77/n78), but only when it actually contains the frequency: MediaTek modems
+     * report "n1" for every 5G NSA carrier.
+     */
+    fun nrAt(mhz: Double?, reportedBands: IntArray? = null): Band? {
+        val reported = reportedBands?.filter { it > 0 }.orEmpty()
+        val candidates = mhz?.let { f -> NR.filter { f >= it.minMhz && f <= it.maxMhz }.map { it.band } }.orEmpty()
+        val number = reported.firstOrNull { it in candidates }
+            ?: candidates.firstOrNull()
+            // A frequency outside our table: trust the modem unless it names a band we know elsewhere.
+            ?: reported.firstOrNull { r -> mhz == null || NR.none { it.band == r } }
+            ?: return null
         return Band(Rat.NR, number, ukeLabel(mhz) ?: "n$number", mhz)
     }
 
