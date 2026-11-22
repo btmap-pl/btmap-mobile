@@ -4,6 +4,15 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Modem diagnostics**: Settings → Tools → *Check and send*. Checks every way to reach the modem
+  (root, SELinux, the Qualcomm diagnostic interface /dev/diag and whether it opens, related device
+  nodes and drivers, USB mode properties, vendor service apps, what the telephony registry
+  reports), saves the report to Downloads and opens the share sheet. Settings → About → *Save
+  diagnostics* includes the same check. No IMEI, SIM or phone numbers are included.
+
 ## [0.1.0-beta.6] - 2026-11-22
 
 ### Fixed

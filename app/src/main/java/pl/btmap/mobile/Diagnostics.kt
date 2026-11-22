@@ -1,6 +1,8 @@
 package pl.btmap.mobile
 
 import android.content.ContentValues
+import android.net.Uri
+import pl.btmap.mobile.tools.ModemProbe
 import android.content.Context
 import android.os.Build
 import android.os.Environment
@@ -15,8 +17,16 @@ import java.util.Locale
  * Contains no position beyond 3 decimals (~100 m).
  */
 object Diagnostics {
-    fun save(context: Context): String? {
+    /** A saved report: its file name and a content URI to share it with. */
+    data class Saved(val name: String, val uri: Uri)
+
+    /**
+     * Saves the report to Downloads. With [probeModem], it starts with [ModemProbe]'s check of
+     * every way to reach the modem (root, /dev/diag, SELinux, USB mode…). Call off the main thread.
+     */
+    suspend fun save(context: Context, probeModem: Boolean = true): Saved? {
         val app = context.applicationContext as BtmapApp
+        val probe = if (probeModem) ModemProbe.run(context, app.shizuku.rootActive.value) else null
         val core = app.core
         val state = core.state.value
         val settings = app.settings.settings.value
@@ -27,6 +37,11 @@ object Diagnostics {
             appendLine("Modem (DUMP): ${core.physicalChannels.isAvailable} · ostatni odczyt: ${core.physicalChannels.lastRead}")
             appendLine("GPS: ${state.fix?.let { "%.3f, %.3f ±%s m %s".format(Locale.ROOT, it.lat, it.lng, it.accuracyMeters, it.provider) } ?: "brak"}")
             appendLine("Stacje: ${state.stations.size} · sąsiedzi rozpoznani: ${state.neighbours.count { it.value != null }}/${state.neighbours.size}")
+            appendLine("Shizuku: ${app.shizuku.status.value} · root: ${app.shizuku.rootActive.value} · Shizuku włączone: ${settings.shizukuEnabled}")
+            probe?.let {
+                appendLine()
+                appendLine(it)
+            }
             for (sim in state.snapshot.sims) {
                 appendLine()
                 appendLine("== SIM ${sim.slotIndex + 1} ${sim.registeredPlmn} ${sim.mode} z modemu=${sim.carriersFromModem} bw=${sim.carrierBandwidthsKhz}")
@@ -55,6 +70,6 @@ object Diagnostics {
         }
         val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
         context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
-        return name
+        return Saved(name, uri)
     }
 }

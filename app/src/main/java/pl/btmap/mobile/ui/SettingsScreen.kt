@@ -904,6 +904,18 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
 
     Spacer(Modifier.height(28.dp))
     RootSection(settings, onChange, rootActive)
+
+    Spacer(Modifier.height(28.dp))
+    Text(tr("Diagnostyka modemu", "Modem diagnostics"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(6.dp))
+    Hint(
+        tr(
+            "Sprawdza wszystkie drogi do modemu: root, SELinux, interfejs diagnostyczny Qualcomm (/dev/diag), tryb USB, sterowniki i to, co zgłasza modem. Raport zapisuje się w Pobranych i od razu można go wysłać. Nie zawiera numerów IMEI, karty SIM ani telefonu.",
+            "Checks every way to reach the modem: root, SELinux, the Qualcomm diagnostic interface (/dev/diag), USB mode, drivers and what the modem reports. The report is saved to Downloads and can be sent right away. It contains no IMEI, SIM or phone numbers.",
+        ),
+    )
+    Spacer(Modifier.height(10.dp))
+    DiagnosticsButton(tr("Sprawdź i wyślij", "Check and send"), primary = true)
 }
 
 /** Root (su) as the alternative to Shizuku on rooted phones. */
@@ -1748,9 +1760,34 @@ private fun About() {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/btmap-pl/btmap-mobile")))
     }
     Spacer(Modifier.height(10.dp))
+    DiagnosticsButton(tr("Zapisz diagnostykę", "Save diagnostics"), primary = false)
+}
+
+/**
+ * Runs the modem check, saves the report to Downloads and opens the share sheet, so a tester can
+ * send it straight from the phone (Messenger, e-mail…).
+ */
+@Composable
+private fun DiagnosticsButton(label: String, primary: Boolean) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var running by remember { mutableStateOf(false) }
     var saved by remember { mutableStateOf<String?>(null) }
-    ActionButton(tr("Zapisz diagnostykę", "Save diagnostics")) {
-        saved = runCatching { pl.btmap.mobile.Diagnostics.save(context) }.getOrNull() ?: tr("błąd zapisu", "save error")
+    ActionButton(if (running) tr("Sprawdzam modem…", "Checking the modem…") else label, enabled = !running, primary = primary) {
+        running = true
+        scope.launch {
+            val result = runCatching { pl.btmap.mobile.Diagnostics.save(context) }.getOrNull()
+            running = false
+            saved = result?.name ?: tr("błąd zapisu", "save error")
+            result?.let {
+                val send = Intent(Intent.ACTION_SEND)
+                    .setType("text/plain")
+                    .putExtra(Intent.EXTRA_STREAM, it.uri)
+                    .putExtra(Intent.EXTRA_SUBJECT, it.name)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                runCatching { context.startActivity(Intent.createChooser(send, tr("Wyślij diagnostykę", "Send diagnostics"))) }
+            }
+        }
     }
     saved?.let {
         Spacer(Modifier.height(6.dp))
