@@ -4,6 +4,15 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.0-beta.9] - 2026-11-22
+
+### Changed
+- **Modem diagnostics look at diag-router.** On newer Snapdragons the modem's DIAG channel is
+  owned by the vendor daemon diag-router, so the DIAG ping (which could not get a reply) is
+  replaced by a read-only look at diag-router: its client tools and their options, the sockets it
+  serves, what it has open, and Samsung's modem log folders (*#9900# Silent Log).
+- Leaner report: fewer unrelated device nodes and system properties.
+
 ## [0.1.0-beta.8] - 2026-11-22
 
 ### Added
@@ -125,6 +134,7 @@ The first public beta.
   BTMap station source are not available to testers until the API is publicly deployed.
 - Band locking targets MediaTek modems.
 
+[0.1.0-beta.9]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.8
 [0.1.0-beta.7]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.7
 [0.1.0-beta.6]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.6
