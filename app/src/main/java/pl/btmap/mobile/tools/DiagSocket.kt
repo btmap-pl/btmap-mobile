@@ -66,39 +66,45 @@ object DiagSocket {
         val frames: Int,
         val badFrames: Int,
         val perCode: Map<Int, Int>,
+        val events: Int,
         val lastItem: Int?,
-        val maskStatus: Int?,
+        /** Every command sent and the replies that came back, in order. */
+        val steps: List<String>,
         val error: String?,
     )
 
     /**
      * Records the modem's LTE / NR5G radio logs for [seconds] into [out] as a raw DIAG stream (the
-     * .qmdl format QXDM, QCSuper and SCAT read): switches on only [DiagLogCodes.NAMES], records,
-     * then switches logging off again and stops the tool. [onSecond] reports progress.
+     * .qmdl format QXDM, QCSuper and SCAT read). Modems differ in which form of SET_MASK they
+     * accept, so both are tried, the mask is read back, and event reports are switched on as a
+     * check that unsolicited data flows at all. Logging is switched off again at the end.
      */
     fun capture(seconds: Int, out: java.io.OutputStream, onSecond: (Int) -> Unit = {}): CaptureSummary {
         val tool = TOOLS.firstOrNull { RootShell.exec("sh", "-c", "[ -x $it ] && echo yes").second.contains("yes") }
-            ?: return CaptureSummary(0, 0, 0, emptyMap(), null, null, "brak diag_socket_log")
+            ?: return CaptureSummary(0, 0, 0, emptyMap(), 0, null, emptyList(), "brak diag_socket_log")
         val decoder = pl.btmap.core.diag.Hdlc.Decoder()
         val perCode = HashMap<Int, Int>()
+        val steps = mutableListOf<String>()
         var frames = 0
+        var events = 0
         var bytes = 0L
         var ranges: IntArray? = null
-        var maskStatus: Int? = null
         var error: String? = null
+        val replies = mutableListOf<String>()
+        val started = System.currentTimeMillis()
         try {
             ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
                 server.soTimeout = 10_000
                 RootShell.exec("sh", "-c", "$tool -k >/dev/null 2>&1; (nohup $tool -a 127.0.0.1 -p ${server.localPort} -r 3 >$LOG 2>&1 &)")
                 server.accept().use { s ->
-                    s.soTimeout = 300
+                    s.soTimeout = 250
                     val input = s.getInputStream()
                     val output = s.getOutputStream()
                     val buf = ByteArray(16_384)
-                    fun pump(millis: Long, tick: Boolean = false) {
-                        val start = System.currentTimeMillis()
-                        var lastSecond = -1
-                        while (System.currentTimeMillis() - start < millis) {
+                    var lastSecond = -1
+                    fun pump(millis: Long) {
+                        val end = System.currentTimeMillis() + millis
+                        while (System.currentTimeMillis() < end) {
                             val n = try { input.read(buf) } catch (_: SocketTimeoutException) { 0 }
                             if (n < 0) break
                             if (n > 0) {
@@ -106,30 +112,51 @@ object DiagSocket {
                                 bytes += n
                                 decoder.feed(buf, n) { f ->
                                     frames++
-                                    pl.btmap.core.diag.DiagCommands.logCode(f)?.let { perCode[it] = (perCode[it] ?: 0) + 1 }
-                                    if ((f[0].toInt() and 0xFF) == pl.btmap.core.diag.DiagCommands.LOG_CONFIG && f.size >= 12) {
-                                        pl.btmap.core.diag.DiagCommands.parseIdRanges(f)?.let { ranges = it }
-                                        val op = java.nio.ByteBuffer.wrap(f).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(4)
-                                        if (op == 3) maskStatus = java.nio.ByteBuffer.wrap(f).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(8)
+                                    val code = pl.btmap.core.diag.DiagCommands.logCode(f)
+                                    when {
+                                        code != null -> perCode[code] = (perCode[code] ?: 0) + 1
+                                        (f[0].toInt() and 0xFF) == pl.btmap.core.diag.DiagCommands.EVENT_REPORT && f.size > 2 -> events++
+                                        else -> {
+                                            pl.btmap.core.diag.DiagCommands.parseIdRanges(f)?.let { ranges = it }
+                                            if (replies.size < 40) replies += pl.btmap.core.diag.DiagCommands.describe(f)
+                                        }
                                     }
                                 }
                             }
-                            if (tick) {
-                                val sec = ((System.currentTimeMillis() - start) / 1000).toInt()
-                                if (sec != lastSecond) { lastSecond = sec; onSecond(sec) }
-                            }
+                            val sec = ((System.currentTimeMillis() - started) / 1000).toInt()
+                            if (sec != lastSecond) { lastSecond = sec; onSecond(sec) }
                         }
                     }
-                    fun send(cmd: ByteArray) = output.apply { write(pl.btmap.core.diag.Hdlc.encode(cmd)); flush() }
+                    fun step(name: String, cmd: ByteArray, wait: Long) {
+                        replies.clear()
+                        output.write(pl.btmap.core.diag.Hdlc.encode(cmd)); output.flush()
+                        val before = perCode.values.sum() to events
+                        pump(wait)
+                        val logs = perCode.values.sum() - before.first
+                        val ev = events - before.second
+                        steps += "$name → ${replies.joinToString("; ").ifEmpty { "(brak odpowiedzi)" }}" +
+                            (if (logs > 0) " · logów $logs" else "") + (if (ev > 0) " · zdarzeń $ev" else "")
+                    }
+                    val equip = pl.btmap.core.diag.DiagCommands.EQUIP_LTE_NR
+                    val codes = pl.btmap.core.diag.DiagLogCodes.NAMES.keys
                     try {
-                        send(pl.btmap.core.diag.DiagCommands.retrieveIdRanges)
-                        pump(3_000)
-                        val last = ranges?.getOrNull(pl.btmap.core.diag.DiagCommands.EQUIP_LTE_NR)?.takeIf { it > 0 } ?: 0xFFF
-                        send(pl.btmap.core.diag.DiagCommands.setMask(pl.btmap.core.diag.DiagCommands.EQUIP_LTE_NR, last, pl.btmap.core.diag.DiagLogCodes.NAMES.keys))
-                        pump(seconds * 1_000L, tick = true)
+                        step("ID ranges", pl.btmap.core.diag.DiagCommands.retrieveIdRanges, 2_500)
+                        val last = ranges?.getOrNull(equip)?.takeIf { it > 0 } ?: 0x9FF
+                        step("maska A (items=0x%X)".format(last), pl.btmap.core.diag.DiagCommands.setMaskBits(equip, last, codes), 2_500)
+                        step("odczyt maski", pl.btmap.core.diag.DiagCommands.getMask(equip), 1_500)
+                        if (perCode.isEmpty()) {
+                            step("maska B (items=0x%X)".format(last + 1), pl.btmap.core.diag.DiagCommands.setMaskBits(equip, last + 1, codes), 2_500)
+                        }
+                        step("zdarzenia wł.", pl.btmap.core.diag.DiagCommands.eventReport(true), 2_000)
+                        val left = seconds * 1_000L - (System.currentTimeMillis() - started)
+                        // The rest of the time: just listen (the request reads the mask back once more).
+                        if (left > 0) step("nagrywanie + odczyt maski", pl.btmap.core.diag.DiagCommands.getMask(equip), left)
                     } finally {
-                        // Logging off again, whatever happened.
-                        runCatching { send(pl.btmap.core.diag.DiagCommands.disableAll); pump(1_500) }
+                        // Logging and events off again, whatever happened.
+                        runCatching {
+                            step("zdarzenia wył.", pl.btmap.core.diag.DiagCommands.eventReport(false), 800)
+                            step("logi wył.", pl.btmap.core.diag.DiagCommands.disableAll, 1_200)
+                        }
                     }
                 }
             }
@@ -138,7 +165,7 @@ object DiagSocket {
         } finally {
             RootShell.exec("sh", "-c", "$tool -k >/dev/null 2>&1; pkill -f diag_socket_log; rm -f $LOG")
         }
-        return CaptureSummary(bytes, frames, decoder.badFrames, perCode, ranges?.getOrNull(pl.btmap.core.diag.DiagCommands.EQUIP_LTE_NR), maskStatus, error)
+        return CaptureSummary(bytes, frames, decoder.badFrames, perCode, events, ranges?.getOrNull(pl.btmap.core.diag.DiagCommands.EQUIP_LTE_NR), steps, error)
     }
 
     /** Collects whatever arrives within [millis]. */

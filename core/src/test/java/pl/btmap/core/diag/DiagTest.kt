@@ -52,4 +52,15 @@ class DiagTest {
         val frame = bytes(0x10, 0x00, 0x20, 0x00, 0x20, 0x00, 0x73, 0xB1, 0, 0, 0, 0, 0, 0, 0, 0)
         assertEquals(0xB173, DiagCommands.logCode(frame))
     }
+
+    @Test
+    fun `mask variants differ only in the item count`() {
+        val a = DiagCommands.setMaskBits(0x0B, 0x9FF, listOf(0xB173))
+        val b = DiagCommands.setMask(0x0B, 0x9FF, listOf(0xB173))
+        assertEquals(0x9FF, java.nio.ByteBuffer.wrap(a).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(12))
+        assertEquals(0xA00, java.nio.ByteBuffer.wrap(b).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(12))
+        assertEquals(a.size, b.size)
+        assertArrayEquals(bytes(0x60, 0x01), DiagCommands.eventReport(true))
+        assertEquals("73 op=0 status=0 (12 B)", DiagCommands.describe(DiagCommands.disableAll + bytes(0, 0, 0, 0)))
+    }
 }

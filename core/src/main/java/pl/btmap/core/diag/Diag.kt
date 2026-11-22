@@ -65,6 +65,8 @@ object DiagCommands {
     private const val OP_DISABLE = 0
     private const val OP_RETRIEVE_ID_RANGES = 1
     private const val OP_SET_MASK = 3
+    private const val OP_GET_MASK = 4
+    const val EVENT_REPORT = 0x60
 
     /** Equipment ID of log codes 0xB000–0xBFFF (LTE and NR5G). */
     const val EQUIP_LTE_NR = 0x0B
@@ -75,8 +77,13 @@ object DiagCommands {
     val retrieveIdRanges: ByteArray get() = le(8).put(LOG_CONFIG.toByte()).put(0).put(0).put(0).putInt(OP_RETRIEVE_ID_RANGES).array()
 
     /** Enables exactly [codes] (all within one equipment ID), whose highest item is [lastItem]. */
-    fun setMask(equipId: Int, lastItem: Int, codes: Collection<Int>): ByteArray {
-        val items = lastItem + 1
+    fun setMask(equipId: Int, lastItem: Int, codes: Collection<Int>): ByteArray = setMaskBits(equipId, lastItem + 1, codes)
+
+    /**
+     * SET_MASK with the item count given as is. Qualcomm's own tools pass the value from
+     * RETRIEVE_ID_RANGES unchanged; [setMask] passes it + 1. Modems differ in which they accept.
+     */
+    fun setMaskBits(equipId: Int, items: Int, codes: Collection<Int>): ByteArray {
         val mask = ByteArray((items + 7) / 8)
         for (code in codes) {
             val item = code and 0xFFF
@@ -84,6 +91,26 @@ object DiagCommands {
         }
         return le(16 + mask.size).put(LOG_CONFIG.toByte()).put(0).put(0).put(0)
             .putInt(OP_SET_MASK).putInt(equipId).putInt(items).put(mask).array()
+    }
+
+    /** Asks for the mask currently set for [equipId]. */
+    fun getMask(equipId: Int): ByteArray =
+        le(12).put(LOG_CONFIG.toByte()).put(0).put(0).put(0).putInt(OP_GET_MASK).putInt(equipId).array()
+
+    /** Switches the modem's event reports on or off (a stream of small packets, command 0x60). */
+    fun eventReport(on: Boolean): ByteArray = byteArrayOf(EVENT_REPORT.toByte(), if (on) 1 else 0)
+
+    /** Short description of a reply frame for a log: command, LOG_CONFIG operation and status. */
+    fun describe(frame: ByteArray): String {
+        val cmd = frame[0].toInt() and 0xFF
+        return when {
+            cmd == LOG_CONFIG && frame.size >= 12 -> {
+                val b = ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN)
+                "73 op=${b.getInt(4)} status=${b.getInt(8)} (${frame.size} B)"
+            }
+            cmd == 0x13 || cmd == 0x14 || cmd == 0x15 -> "%02x BŁĄD (bad cmd/params/len) %s".format(cmd, frame.take(12).joinToString(" ") { "%02x".format(it) })
+            else -> "%02x (${frame.size} B)".format(cmd)
+        }
     }
 
     /** Last item per equipment ID from a RETRIEVE_ID_RANGES reply, or null if it is not one. */
