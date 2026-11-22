@@ -35,6 +35,8 @@ data class Settings(
     val dbWifiOnly: Boolean = true,
     /** Use Shizuku (once authorised there) to unlock modem access without a computer. */
     val shizukuEnabled: Boolean = false,
+    /** Use root (su) instead of Shizuku for modem access on rooted phones. */
+    val rootEnabled: Boolean = false,
     /** Sharing coverage measurements: null = not asked yet. */
     val coverageConsent: Boolean? = null,
 ) {
@@ -87,6 +89,7 @@ class SettingsStore(context: Context) {
             dbRefreshDays = prefs.getInt("dbRefreshDays", d.dbRefreshDays),
             dbWifiOnly = prefs.getBoolean("dbWifiOnly", d.dbWifiOnly),
             shizukuEnabled = prefs.getBoolean("shizukuEnabled", d.shizukuEnabled),
+            rootEnabled = prefs.getBoolean("rootEnabled", d.rootEnabled),
             coverageConsent = if (prefs.contains("coverageConsent")) prefs.getBoolean("coverageConsent", false) else null,
         )
     }
@@ -106,6 +109,7 @@ class SettingsStore(context: Context) {
             .putInt("dbRefreshDays", s.dbRefreshDays)
             .putBoolean("dbWifiOnly", s.dbWifiOnly)
             .putBoolean("shizukuEnabled", s.shizukuEnabled)
+            .putBoolean("rootEnabled", s.rootEnabled)
             .apply { if (s.coverageConsent == null) remove("coverageConsent") else putBoolean("coverageConsent", s.coverageConsent) }
             .apply()
     }

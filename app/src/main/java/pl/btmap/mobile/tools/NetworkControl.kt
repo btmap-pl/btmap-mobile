@@ -133,7 +133,7 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
         val original = originalMask(slot) ?: return tr("Nie udało się odczytać ustawień sieci", "Could not read the network settings")
         // Leaving 5G SA on MediaTek: give the modem its LTE bands back first.
         restoreSaBands(slot)
-        if (preset == NetworkModePreset.NR && MtkBandControl.supported(slot) != null) {
+        if (preset == NetworkModePreset.NR && shizuku.binderAvailable && MtkBandControl.supported(slot) != null) {
             forceSa(slot)?.let { return it }
             prefs.edit().putString("mode_$slot", preset.name).apply()
             return null
@@ -188,7 +188,7 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
 
     /** Bands the modem of [slot] supports and allows now; MediaTek modems answer directly. */
     suspend fun modemBands(slot: Int): ModemBands {
-        val supported = MtkBandControl.supported(slot)
+        val supported = if (shizuku.binderAvailable) MtkBandControl.supported(slot) else null
         if (supported != null) {
             val current = MtkBandControl.current(slot)
             val sel = current?.let {
@@ -207,6 +207,7 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
      * restriction on any phone.
      */
     suspend fun resetBands(slot: Int, subId: Int): BandLockOutcome {
+        if (!shizuku.binderAvailable) return BandLockOutcome.Failed(NEEDS_SHIZUKU())
         val mtk = if (MtkBandControl.supported(slot) != null) MtkBandControl.reset(slot) else null
         runCatching { BandLock.apply(subId, BandSelection()) }
         return if (mtk == false) BandLockOutcome.Failed(tr("Modem nie przyjął domyślnych pasm", "The modem did not accept the default bands")) else BandLockOutcome.Restored
@@ -218,6 +219,8 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
      * on is checked.
      */
     suspend fun applyBands(slot: Int, subId: Int, selection: BandSelection): BandLockOutcome {
+        // Band locking talks to the modem through binder calls, which only Shizuku can make.
+        if (!shizuku.binderAvailable) return BandLockOutcome.Failed(NEEDS_SHIZUKU())
         if (MtkBandControl.supported(slot) != null) return applyMediatek(slot, selection)
         return applyAndroid(slot, subId, selection)
     }
@@ -296,3 +299,8 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
         prefs.edit().putString(supportKey(), support.name).apply()
     }
 }
+
+private fun NEEDS_SHIZUKU() = tr(
+    "Wymuszanie pasm wymaga Shizuku — z rootem działa tryb sieci i odczyt z modemu",
+    "Band locking needs Shizuku — with root, network mode and modem readings work",
+)

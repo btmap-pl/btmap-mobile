@@ -4,6 +4,13 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Root support** as an alternative to Shizuku: Settings → Tools → Root → *Use root*. On a
+  rooted phone (Magisk, KernelSU, APatch) BTMap grants itself modem access (DUMP) and can change
+  the network mode without Shizuku. Locking individual bands still needs Shizuku.
+
 ## [0.1.0-beta.4] - 2026-11-22
 
 ### Changed

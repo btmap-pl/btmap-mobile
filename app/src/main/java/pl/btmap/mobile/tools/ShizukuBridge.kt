@@ -15,6 +15,9 @@ import rikka.shizuku.Shizuku
  * shell-level commands after the user authorises it. BTMap uses it to grant itself
  * `android.permission.DUMP` — the same one-time `pm grant` that otherwise needs a computer — so
  * carrier aggregation is read from the modem.
+ *
+ * On a rooted phone the same shell commands can run through `su` instead ([RootShell]), for users
+ * whose Shizuku does not work. Binder calls (band locking) still need Shizuku.
  */
 class ShizukuBridge(context: Context) {
 
@@ -32,6 +35,24 @@ class ShizukuBridge(context: Context) {
     private val appContext = context.applicationContext
     private val _status = MutableStateFlow(compute())
     val status: StateFlow<Status> = _status.asStateFlow()
+
+    /** Root is switched on in settings and BTMap was allowed by the root manager. */
+    private val _rootActive = MutableStateFlow(false)
+    val rootActive: StateFlow<Boolean> = _rootActive.asStateFlow()
+
+    /** Asks for root (shows the root manager's prompt); false when denied or not rooted. */
+    suspend fun enableRoot(): Boolean = withContext(Dispatchers.IO) {
+        val granted = RootShell.request()
+        _rootActive.value = granted
+        granted
+    }
+
+    fun disableRoot() {
+        _rootActive.value = false
+    }
+
+    /** Shizuku (authorised) can make binder calls; root alone cannot. */
+    val binderAvailable: Boolean get() = _status.value == Status.READY
 
     private val binderReceived = Shizuku.OnBinderReceivedListener { refresh() }
     private val binderDead = Shizuku.OnBinderDeadListener { refresh() }
@@ -81,7 +102,7 @@ class ShizukuBridge(context: Context) {
     /** Grants BTMap `android.permission.DUMP` through Shizuku. Returns true on success. */
     suspend fun grantDump(): Boolean = withContext(Dispatchers.IO) {
         if (hasDump) return@withContext true
-        if (_status.value != Status.READY) return@withContext false
+        if (_status.value != Status.READY && !_rootActive.value) return@withContext false
         run("pm", "grant", appContext.packageName, Manifest.permission.DUMP) == 0 && hasDump
     }
 
@@ -91,8 +112,11 @@ class ShizukuBridge(context: Context) {
      */
     private fun run(vararg command: String): Int = exec(*command).first
 
-    /** Runs a shell command through Shizuku; returns exit code and combined output (-1 on failure). */
-    fun exec(vararg command: String): Pair<Int, String> = runCatching {
+    /** Runs a shell command through root (when on) or Shizuku; returns exit code and output (-1 on failure). */
+    fun exec(vararg command: String): Pair<Int, String> =
+        if (_rootActive.value) RootShell.exec(*command) else shizukuExec(*command)
+
+    private fun shizukuExec(vararg command: String): Pair<Int, String> = runCatching {
         val method = Shizuku::class.java.getDeclaredMethod(
             "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java,
         ).apply { isAccessible = true }

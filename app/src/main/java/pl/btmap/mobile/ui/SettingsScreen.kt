@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material3.Icon
@@ -782,14 +783,19 @@ private fun bandsSummary(settings: Settings): String {
     val app = LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp
     val status by app.shizuku.status.collectAsStateWithLifecycle()
     val active by app.bands.active.collectAsStateWithLifecycle()
-    if (status != ShizukuBridge.Status.READY || !settings.shizukuEnabled) return tr("Wymaga Shizuku", "Requires Shizuku")
+    val root by app.shizuku.rootActive.collectAsStateWithLifecycle()
+    if (root && status != ShizukuBridge.Status.READY) return tr("Root: tryb sieci", "Root: network mode")
+    if (status != ShizukuBridge.Status.READY || !settings.shizukuEnabled) return tr("Wymaga Shizuku lub roota", "Requires Shizuku or root")
     val restricted = active.filterValues { !it.isUnrestricted }
     return if (restricted.isEmpty()) tr("Wszystkie pasma odblokowane", "All bands unlocked") else tr("Ograniczone: ", "Restricted: ") + describe(restricted.values.first())
 }
 
 @Composable
 private fun toolsSummary(settings: Settings): String {
-    val status by (LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp).shizuku.status.collectAsStateWithLifecycle()
+    val shizuku = (LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp).shizuku
+    val status by shizuku.status.collectAsStateWithLifecycle()
+    val root by shizuku.rootActive.collectAsStateWithLifecycle()
+    if (root) return tr("Root: włączony", "Root: enabled")
     return "Shizuku: " + when {
         status == ShizukuBridge.Status.READY && settings.shizukuEnabled -> tr("włączone", "enabled")
         status == ShizukuBridge.Status.READY -> tr("połączone, wyłączone", "connected, disabled")
@@ -814,6 +820,8 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
         }
     }
     val ready = status == ShizukuBridge.Status.READY
+    val rootActive by shizuku.rootActive.collectAsStateWithLifecycle()
+    val privileged = (ready && settings.shizukuEnabled) || rootActive
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         androidx.compose.foundation.Image(
@@ -879,7 +887,7 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
             settings.shizukuEnabled && ready,
         ) { on -> if (ready) onChange { it.copy(shizukuEnabled = on) } }
     }
-    if (ready && settings.shizukuEnabled) {
+    if (privileged) {
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             PulseDot(if (hasDump) Btmap.colors.good else Btmap.colors.poor, active = !hasDump)
@@ -889,9 +897,81 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
             )
         }
     }
-    if (ready && settings.shizukuEnabled) {
+    if (privileged) {
         Spacer(Modifier.height(14.dp))
         Hint(tr("Wymuszanie pasm jest dostępne w osobnej kategorii ustawień.", "Band locking has its own settings category."))
+    }
+
+    Spacer(Modifier.height(28.dp))
+    RootSection(settings, onChange, rootActive)
+}
+
+/** Root (su) as the alternative to Shizuku on rooted phones. */
+@Composable
+private fun RootSection(settings: Settings, onChange: ((Settings) -> Settings) -> Unit, rootActive: Boolean) {
+    val installed = remember { pl.btmap.mobile.tools.RootShell.isInstalled() }
+    val waiting = settings.rootEnabled && !rootActive
+    // The root manager's prompt can take a while; after that, a still inactive root means "denied".
+    var denied by remember { mutableStateOf(false) }
+    LaunchedEffect(waiting) {
+        denied = false
+        if (waiting) {
+            kotlinx.coroutines.delay(15_000)
+            denied = true
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).background(Btmap.colors.accent.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Outlined.Lock, null, tint = Btmap.colors.accent, modifier = Modifier.size(26.dp)) }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Root", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                PulseDot(
+                    when {
+                        rootActive -> Btmap.colors.good
+                        waiting -> Btmap.colors.poor
+                        else -> Btmap.colors.faint
+                    },
+                    active = waiting && !denied,
+                )
+                Text(
+                    when {
+                        rootActive -> tr("BTMap ma dostęp roota", "BTMap has root access")
+                        waiting && denied -> tr("Brak zgody — zezwól BTMap w Magisk / KernelSU", "Not allowed — allow BTMap in Magisk / KernelSU")
+                        waiting -> tr("Czekam na zgodę w menedżerze roota…", "Waiting for the root manager…")
+                        installed -> tr("Wykryto root na tym telefonie", "Root detected on this phone")
+                        else -> tr("Nie wykryto roota", "No root detected")
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (rootActive) Btmap.colors.good else Btmap.colors.muted,
+                )
+            }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    Hint(
+        tr(
+            "Na telefonie z rootem (Magisk, KernelSU, APatch) BTMap działa bez Shizuku: nada sobie dostęp do modemu i zmieni tryb sieci. Wymuszanie pasm nadal wymaga Shizuku.",
+            "On a rooted phone (Magisk, KernelSU, APatch) BTMap works without Shizuku: it grants itself modem access and can change the network mode. Band locking still needs Shizuku.",
+        ),
+    )
+    Spacer(Modifier.height(10.dp))
+    Box(Modifier.graphicsLayer { alpha = if (installed || settings.rootEnabled) 1f else 0.45f }) {
+        ToggleRow(
+            tr("Użyj roota", "Use root"),
+            if (installed || settings.rootEnabled) tr("Menedżer roota zapyta o zgodę", "The root manager will ask for permission")
+            else tr("Ten telefon nie ma roota", "This phone is not rooted"),
+            settings.rootEnabled,
+        ) { on -> if (installed || !on) onChange { it.copy(rootEnabled = on) } }
+    }
+    if (waiting && denied) {
+        Spacer(Modifier.height(8.dp))
+        val scope = rememberCoroutineScope()
+        val app = LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp
+        WideButton(tr("Zapytaj ponownie", "Ask again")) { scope.launch { app.shizuku.enableRoot() } }
     }
 }
 
@@ -908,7 +988,8 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
     val context = LocalContext.current
     val app = context.applicationContext as pl.btmap.mobile.BtmapApp
     val status by app.shizuku.status.collectAsStateWithLifecycle()
-    val available = status == ShizukuBridge.Status.READY && settings.shizukuEnabled
+    val rootActive by app.shizuku.rootActive.collectAsStateWithLifecycle()
+    val available = (status == ShizukuBridge.Status.READY && settings.shizukuEnabled) || rootActive
 
     if (!available) {
         Card(Modifier.enterAnimation(1)) {
@@ -919,14 +1000,23 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                 ) { BandLockIcon(Btmap.colors.poor) }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(tr("Wymaga Shizuku", "Requires Shizuku"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(tr("Podłącz BTMap w Shizuku i włącz je w Narzędziach.", "Authorise BTMap in Shizuku and enable it in Tools."), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+                    Text(tr("Wymaga Shizuku lub roota", "Requires Shizuku or root"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(tr("Podłącz BTMap w Shizuku albo włącz root w Narzędziach.", "Authorise BTMap in Shizuku or enable root in Tools."), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
                 }
             }
             Spacer(Modifier.height(14.dp))
             WideButton(tr("Przejdź do Narzędzi", "Go to Tools"), primary = true, onClick = onOpenTools)
         }
         return
+    }
+    if (!app.shizuku.binderAvailable) {
+        Hint(
+            tr(
+                "Z rootem działa tryb sieci. Blokada pojedynczych pasm wymaga Shizuku (wywołania modemu przez binder).",
+                "With root, the network mode works. Locking individual bands needs Shizuku (modem calls through binder).",
+            ),
+        )
+        Spacer(Modifier.height(10.dp))
     }
 
     val store = app.bands

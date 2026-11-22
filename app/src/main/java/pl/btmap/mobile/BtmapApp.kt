@@ -93,8 +93,14 @@ class BtmapApp : Application() {
         }
         // With Shizuku switched on and authorised, unlock modem access (DUMP) without a computer.
         scope.launch {
-            combine(settings.settings.map { it.shizukuEnabled }.distinctUntilChanged(), shizuku.status) { on, st -> on to st }
-                .collect { (on, st) -> if (on && st == ShizukuBridge.Status.READY) shizuku.grantDump() }
+            combine(settings.settings.map { it.shizukuEnabled }.distinctUntilChanged(), shizuku.status, shizuku.rootActive) { on, st, root -> (on && st == ShizukuBridge.Status.READY) || root }
+                .collect { privileged -> if (privileged) shizuku.grantDump() }
+        }
+        // Root (su) as the alternative to Shizuku: asked for once when switched on, and on each start.
+        scope.launch {
+            settings.settings.map { it.rootEnabled }.distinctUntilChanged().collect { on ->
+                if (on) shizuku.enableRoot() else shizuku.disableRoot()
+            }
         }
         scope.launch {
             settings.settings.map { Triple(it.dbRefreshDays, it.dbWifiOnly, it.database) }.distinctUntilChanged().collect {
