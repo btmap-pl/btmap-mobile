@@ -54,6 +54,9 @@ object ModemProbe {
                 appendLine()
                 appendLine("== diag-router: narzędzia, gniazda, logi")
                 appendLine(RootShell.exec("sh", "-c", DIAG_ROUTER, timeoutSeconds = 60).second.trim().ifEmpty { "(brak wyniku)" })
+                appendLine()
+                appendLine("== DIAG przez gniazdo (diag_socket_log)")
+                appendLine(DiagSocket.versionTest())
             }
 
             appendLine()

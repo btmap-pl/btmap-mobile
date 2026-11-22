@@ -4,6 +4,13 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **DIAG through diag_socket_log** in modem diagnostics (root): BTMap listens on 127.0.0.1, starts
+  Qualcomm's `diag_socket_log` pointed at it, asks the modem for its version and build ID and
+  prints the replies, then stops the tool. Read-only.
+
 ## [0.1.0-beta.9] - 2026-11-22
 
 ### Changed
