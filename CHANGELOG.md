@@ -4,6 +4,14 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+- **Live modem screen showed no data** on the Galaxy S25: the modem answers seconds late and drops
+  a request sent while an earlier one is pending, so the log mask was lost. Every command now waits
+  for its reply, the mask is repeated until the modem confirms it and re-sent when data stops, and
+  the screen shows the connection stage and what arrived.
+
 ## [0.1.0-beta.13] - 2026-11-22
 
 ### Added

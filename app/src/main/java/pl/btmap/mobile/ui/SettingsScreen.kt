@@ -1844,10 +1844,18 @@ private fun ModemLivePage() {
             Text(
                 when (val st = state) {
                     pl.btmap.mobile.tools.DiagLive.State.Off -> tr("Zatrzymano", "Stopped")
-                    pl.btmap.mobile.tools.DiagLive.State.Connecting -> tr("Łączę z modemem…", "Connecting to the modem…")
+                    is pl.btmap.mobile.tools.DiagLive.State.Connecting -> when (st.stage) {
+                        pl.btmap.mobile.tools.DiagLive.Stage.STARTING -> tr("Uruchamiam diag_socket_log…", "Starting diag_socket_log…")
+                        pl.btmap.mobile.tools.DiagLive.Stage.RANGES -> tr("Połączono · pytam modem o zakres logów…", "Connected · asking the modem for log ranges…")
+                        pl.btmap.mobile.tools.DiagLive.Stage.MASK -> tr("Włączam log PDSCH (próba ${st.attempt})…", "Switching the PDSCH log on (attempt ${st.attempt})…")
+                        pl.btmap.mobile.tools.DiagLive.Stage.LISTENING -> tr("Słucham…", "Listening…")
+                    }
                     is pl.btmap.mobile.tools.DiagLive.State.Failed -> tr("Błąd: ", "Error: ") + st.message
                     is pl.btmap.mobile.tools.DiagLive.State.Running ->
-                        if (stats == null) tr("Połączono · czekam na dane (pobierz coś, żeby modem nadawał)", "Connected · waiting for data (download something)")
+                        if (stats == null) tr(
+                            "Czekam na dane · maska ${if (st.maskConfirmed) "przyjęta" else "bez potwierdzenia"} (prób ${st.maskAttempts}) · ramek ${st.frames}, PDSCH ${st.packets}",
+                            "Waiting for data · mask ${if (st.maskConfirmed) "accepted" else "not confirmed"} (attempts ${st.maskAttempts}) · frames ${st.frames}, PDSCH ${st.packets}",
+                        )
                         else tr("Na żywo · ${"%.0f".format(stats.blocksPerSecond)} bloków/s", "Live · ${"%.0f".format(stats.blocksPerSecond)} blocks/s")
                 },
                 style = MaterialTheme.typography.bodyMedium, color = colors.muted,
