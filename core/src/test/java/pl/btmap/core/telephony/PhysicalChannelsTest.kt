@@ -44,4 +44,19 @@ class PhysicalChannelsTest {
         val parsed = PhysicalChannelReader.parse("  Phone Id=0\n    mPhysicalChannelConfigs=[]\n")
         assertEquals(emptyList<PhysicalChannel>(), parsed[0])
     }
+
+    @Test
+    fun `samsung channel 0 means unknown`() {
+        // Samsung Galaxy S25 (Orange RO, B20 + B1 CA): the modem leaves the channel at 0.
+        val samsung = """
+  Phone Id=0
+    mPhysicalChannelConfigs=[{mConnectionStatus=PrimaryServing,mCellBandwidthDownlinkKhz=10000,mNetworkType=LTE,mDownlinkChannelNumber=0,mPhysicalCellId=31,mBand=0}, {mConnectionStatus=SecondaryServing,mCellBandwidthDownlinkKhz=20000,mNetworkType=LTE,mDownlinkChannelNumber=0,mPhysicalCellId=31,mBand=1}]
+"""
+        val carriers = PhysicalChannelReader.parse(samsung)[0]!!
+        assertEquals(null, carriers[0].channel)
+        assertEquals(null, carriers[0].band)
+        assertEquals(10000, carriers[0].bandwidthKhz)
+        assertEquals(null, carriers[1].channel)
+        assertEquals(1, carriers[1].band)
+    }
 }

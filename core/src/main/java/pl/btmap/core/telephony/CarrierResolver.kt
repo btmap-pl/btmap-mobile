@@ -57,7 +57,8 @@ object CarrierResolver {
         Carrier(
             rat = pc.rat,
             isPrimary = pc.primary,
-            band = bandOf(pc) ?: cell?.identity?.band,
+            // Without a channel from the modem, the cell the phone measures knows its band better.
+            band = (if (pc.channel == null) cell?.identity?.band else null) ?: bandOf(pc) ?: cell?.identity?.band,
             channel = pc.channel ?: cell?.identity?.channel,
             physicalId = pc.pci ?: cell?.identity?.physicalId,
             bandwidthKhz = pc.bandwidthKhz,

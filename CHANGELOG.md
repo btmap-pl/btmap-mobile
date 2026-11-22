@@ -7,6 +7,9 @@ All notable changes to BTMap Mobile are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Wrong bands on Samsung** with modem access (root or Shizuku): the modem reports channel 0
+  for carriers it does not fill in, which was read as band 1 (2100). Channel 0 now counts as
+  unknown and the band comes from the measured cell.
 - **Holes in recorded coverage** along a drive: a short gap (up to ~800 m and 90 s) on the same
   band, after a moment of poor GPS or a stale reading, is filled with readings interpolated along
   the way.

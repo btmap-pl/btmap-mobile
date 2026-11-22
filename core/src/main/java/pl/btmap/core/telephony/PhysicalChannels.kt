@@ -99,7 +99,9 @@ class PhysicalChannelReader(context: Context) {
                 primary = f["mConnectionStatus"]?.contains("Primary", ignoreCase = true) == true,
                 rat = rat,
                 band = int("mBand")?.takeIf { it > 0 },
-                channel = int("mDownlinkChannelNumber"),
+                // Samsung modems report 0 for carriers whose channel they do not fill in. Channel 0 is
+                // the very edge of band 1 (LTE) and not a usable NR channel, so it means "unknown".
+                channel = int("mDownlinkChannelNumber")?.takeIf { it > 0 },
                 pci = int("mPhysicalCellId"),
                 bandwidthKhz = int("mCellBandwidthDownlinkKhz")?.takeIf { it > 0 },
                 downlinkKhz = f["mDownlinkFrequency"]?.toLongOrNull()?.takeIf { it > 0 },
