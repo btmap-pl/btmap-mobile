@@ -5,6 +5,10 @@ plugins {
 
 val apiBaseUrl = providers.gradleProperty("btmap.apiBaseUrl").getOrElse("http://127.0.0.1:3001")
 
+// Release signing comes from ~/.gradle/gradle.properties (never from the repository):
+// BTMAP_STORE_FILE, BTMAP_STORE_PASSWORD, BTMAP_KEY_ALIAS, BTMAP_KEY_PASSWORD.
+val releaseStoreFile = providers.gradleProperty("BTMAP_STORE_FILE").orNull
+
 android {
     namespace = "pl.btmap.mobile"
     compileSdk = 35
@@ -13,13 +17,23 @@ android {
         applicationId = "pl.btmap.mobile"
         minSdk = 31
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.0-beta.1"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+    }
+
+    signingConfigs {
+        if (releaseStoreFile != null) create("release") {
+            storeFile = file(releaseStoreFile)
+            storePassword = providers.gradleProperty("BTMAP_STORE_PASSWORD").get()
+            keyAlias = providers.gradleProperty("BTMAP_KEY_ALIAS").get()
+            keyPassword = providers.gradleProperty("BTMAP_KEY_PASSWORD").get()
+        }
     }
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }

@@ -1,5 +1,6 @@
 package pl.btmap.mobile.tools
 
+import android.annotation.SuppressLint
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -36,13 +37,15 @@ object BandLock {
     private const val BOOLEAN_CONSUMER = "com.android.internal.telephony.IBooleanConsumer"
 
     /** Transaction code differs between Android versions; read it, fall back to Android 16's value. */
-    private val setCode: Int by lazy {
-        runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) HiddenApiBypass.addHiddenApiExemptions("Lcom/android/internal/telephony/ITelephony")
-            Class.forName("$TELEPHONY\$Stub").getDeclaredField("TRANSACTION_setSystemSelectionChannels")
-                .apply { isAccessible = true }.getInt(null)
-        }.getOrDefault(273)
-    }
+    private val setCode: Int by lazy { readSetCode() }
+
+    // The hidden field is exempted at runtime by HiddenApiBypass first.
+    @SuppressLint("BlockedPrivateApi")
+    private fun readSetCode(): Int = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) HiddenApiBypass.addHiddenApiExemptions("Lcom/android/internal/telephony/ITelephony")
+        Class.forName("$TELEPHONY\$Stub").getDeclaredField("TRANSACTION_setSystemSelectionChannels")
+            .apply { isAccessible = true }.getInt(null)
+    }.getOrDefault(273)
 
     fun specifiers(selection: BandSelection): List<RadioAccessSpecifier> = buildList {
         if (selection.lte.isNotEmpty()) {

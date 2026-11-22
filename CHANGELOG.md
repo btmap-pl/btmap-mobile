@@ -1,0 +1,56 @@
+# Changelog
+
+All notable changes to BTMap Mobile are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
+[Semantic Versioning](https://semver.org/).
+
+## [0.1.0-beta.1] - 2026-11-22
+
+The first public beta.
+
+### Added
+- **Core:** own cell monitoring core for every SIM, covering LTE, 5G NR (NSA and SA), UMTS
+  and GSM. It reports band, frequency and bandwidth from (E/NR/U)ARFCN, eNB/gNB:CID, and
+  distance from Timing Advance.
+- **Carrier aggregation from the modem:** read from PhysicalChannelConfig, with per-carrier
+  band, bandwidth, RSRP, RSRQ and SNR. You can switch between the carriers on the Live screen.
+- **Station names** for the serving cell and neighbours on 2G, 3G, 4G and 5G.
+- **Live screen** with light and dark themes, animations and an optional neighbour list.
+- **Map tab:**
+  - a station map that highlights the station you are connected to;
+  - a crowdsourced coverage map per operator and band.
+- **Coverage sharing:** opt-in, asked on first start. Uploads over Wi-Fi or mobile data.
+- **Log:**
+  - a persistent list of connected cells, with a details screen for each;
+  - a history of changes (cell, PCI, band, aggregation, loss of service).
+- **Background monitoring:** a foreground service whose notification shows the bands and
+  the station. Power modes switch automatically between live, background and idle.
+- **Settings** grouped into categories: appearance, Live, notification, database, tools,
+  band locking, coverage and about.
+- **Station database:**
+  - BTSearch or BTMap (without UKE) as the source;
+  - per-operator download through the BTSearch API v2 that respects the API's rate limits;
+  - scheduled refresh, with a Wi-Fi-only option;
+  - operators that are already up to date are skipped.
+- **Shizuku integration:** unlocks the modem tools and grants `DUMP` automatically.
+- **Band locking (MediaTek):**
+  - LTE and NR band masks, using the bands the modem reports as supported;
+  - saved named configurations;
+  - a reset to the default bands;
+  - a check that the modem really applied the lock.
+- **Network mode:** 5G/4G/3G/2G combinations, including a real 5G SA mode on MediaTek that
+  falls back automatically if the phone loses service.
+- **Diagnostics export** and an on-device crash report (Settings → About).
+
+### Fixed
+- Vendor placeholder values are filtered out instead of being shown as real measurements:
+  - MIUI: TA 1282, −44 dBm, 1.4 MHz bandwidth, NCI 268435455;
+  - an unknown CI.
+- Crash on Android 13 (Samsung Galaxy A22 5G) when the SIM list changes.
+
+### Known limitations
+- The BTMap API points at a development server. Coverage upload, the coverage map and the
+  BTMap station source are not available to testers until the API is publicly deployed.
+- Band locking targets MediaTek modems.
+
+[0.1.0-beta.1]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.1
