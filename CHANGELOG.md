@@ -6,6 +6,11 @@ All notable changes to BTMap Mobile are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Holes in recorded coverage** along a drive: a short gap (up to ~800 m and 90 s) on the same
+  band, after a moment of poor GPS or a stale reading, is filled with readings interpolated along
+  the way.
+
 ### Added
 - **Routes with signal** on the Map tab: the *Route* pill shows the latest trip as a line coloured
   by the data SIM's signal (green strong → red weak, grey without service), with its length and

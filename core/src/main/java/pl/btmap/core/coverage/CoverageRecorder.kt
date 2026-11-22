@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import pl.btmap.core.LiveState
+import pl.btmap.core.location.Geo
 import pl.btmap.core.model.Rat
 import java.io.File
 import java.net.HttpURLConnection
@@ -34,6 +35,10 @@ class CoverageRecorder(private val file: File) {
     private val queue = ArrayList<CoverageSample>()
     private val lastRecorded = HashMap<String, Long>()
 
+    /** Last accepted measurement per network + band, to bridge short gaps along a route. */
+    private data class Last(val lat: Double, val lng: Double, val atMillis: Long, val dbm: Int)
+    private val lastByLayer = HashMap<String, Last>()
+
     init {
         runCatching { if (file.exists()) queue += decode(file.readText()) }
     }
@@ -46,8 +51,6 @@ class CoverageRecorder(private val file: File) {
         if ((fix.accuracyMeters ?: Float.MAX_VALUE) > MAX_ACCURACY_M) return
         if (System.currentTimeMillis() - fix.timeMillis > MAX_FIX_AGE_MS) return
         val now = System.currentTimeMillis()
-        val gy = floor(fix.lat / GRID_LAT).toLong()
-        val gx = floor(fix.lng / GRID_LNG).toLong()
         val added = mutableListOf<CoverageSample>()
         for (sim in state.snapshot.sims) {
             val plmn = sim.registeredPlmn ?: continue
@@ -64,10 +67,32 @@ class CoverageRecorder(private val file: File) {
                     Rat.GSM -> cell.signal.rssi
                 } ?: continue
                 val tech = when (carrier.rat) { Rat.NR -> "5G"; Rat.LTE -> "LTE"; Rat.WCDMA -> "UMTS"; Rat.GSM -> "GSM" }
-                val key = "$gy:$gx:${plmn.numeric}:$tech:${band.label}"
-                if (now - (lastRecorded[key] ?: 0) < REPEAT_MS) continue
-                lastRecorded[key] = now
-                added += CoverageSample(fix.lat, fix.lng, plmn.mcc, plmn.mnc, tech, band.label, dbm)
+                val layer = "${plmn.numeric}:$tech:${band.label}"
+                // A moment of poor GPS or a stale reading leaves holes in a drive; when the same
+                // band was measured a short way back, the squares in between get the readings
+                // interpolated along the straight line.
+                val points = mutableListOf(Triple(fix.lat, fix.lng, dbm))
+                lastByLayer[layer]?.let { prev ->
+                    if (now - prev.atMillis > MAX_GAP_MS) return@let
+                    val dist = Geo.distanceMeters(prev.lat, prev.lng, fix.lat, fix.lng)
+                    if (dist <= GAP_STEP_M || dist > MAX_GAP_M) return@let
+                    val steps = (dist / GAP_STEP_M).toInt().coerceAtLeast(2)
+                    for (k in 1 until steps) {
+                        val f = k.toDouble() / steps
+                        points += Triple(
+                            prev.lat + (fix.lat - prev.lat) * f,
+                            prev.lng + (fix.lng - prev.lng) * f,
+                            Math.round(prev.dbm + (dbm - prev.dbm) * f).toInt(),
+                        )
+                    }
+                }
+                lastByLayer[layer] = Last(fix.lat, fix.lng, now, dbm)
+                for ((lat, lng, value) in points) {
+                    val key = "${floor(lat / GRID_LAT).toLong()}:${floor(lng / GRID_LNG).toLong()}:$layer"
+                    if (now - (lastRecorded[key] ?: 0) < REPEAT_MS) continue
+                    lastRecorded[key] = now
+                    added += CoverageSample(lat, lng, plmn.mcc, plmn.mnc, tech, band.label, value)
+                }
             }
         }
         if (added.isEmpty()) return
@@ -151,6 +176,10 @@ class CoverageRecorder(private val file: File) {
         private const val MAX_FIX_AGE_MS = 15_000L
         private const val MAX_SIGNAL_AGE_MS = 8_000L
         private const val REPEAT_MS = 10 * 60_000L
+        /** Gaps up to this long (distance and time) are bridged; spacing of the bridging points. */
+        private const val MAX_GAP_M = 800
+        private const val MAX_GAP_MS = 90_000L
+        private const val GAP_STEP_M = 50
         private const val MAX_QUEUE = 20_000
         private const val BATCH = 500
     }

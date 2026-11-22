@@ -30,7 +30,7 @@ class CoverageRecorderTest {
         return Carrier(Rat.LTE, primary, id.band, earfcn, 1, 20_000, CarrierSource.REPORTED, cell, id, age)
     }
 
-    private fun state(accuracy: Float, vararg carriers: Carrier) = LiveState(
+    private fun state(accuracy: Float, vararg carriers: Carrier, lat: Double = 52.4192, lng: Double = 21.3044) = LiveState(
         snapshot = NetworkSnapshot(
             listOf(
                 SimState(
@@ -40,7 +40,7 @@ class CoverageRecorderTest {
             ),
             0,
         ),
-        fix = GeoFix(52.4192, 21.3044, accuracy, null, null, null, System.currentTimeMillis(), "gps"),
+        fix = GeoFix(lat, lng, accuracy, null, null, null, System.currentTimeMillis(), "gps"),
     )
 
     @Test
@@ -65,5 +65,22 @@ class CoverageRecorderTest {
         val f = tmp.newFile("q.json")
         CoverageRecorder(f).apply { record(state(10f, carrier(1355, -100, true))); flush() }
         assertEquals(1, CoverageRecorder(f).pending)
+    }
+
+    @Test
+    fun `bridges a short gap along a drive`() {
+        val rec = CoverageRecorder(tmp.newFile("q.json"))
+        rec.record(state(10f, carrier(1355, -90, true)))
+        // ~440 m further north: every grid row from 52.419 to 52.423 gets a reading, none skipped.
+        rec.record(state(10f, carrier(1355, -110, true), lat = 52.4232))
+        assertEquals(5, rec.pending)
+    }
+
+    @Test
+    fun `does not bridge a jump`() {
+        val rec = CoverageRecorder(tmp.newFile("q.json"))
+        rec.record(state(10f, carrier(1355, -90, true)))
+        rec.record(state(10f, carrier(1355, -110, true), lat = 52.4392)) // ~2.2 km
+        assertEquals(2, rec.pending)
     }
 }
