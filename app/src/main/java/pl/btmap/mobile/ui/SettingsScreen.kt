@@ -108,17 +108,22 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import pl.btmap.mobile.i18n.tr
+import pl.btmap.mobile.i18n.translateMessage
+import pl.btmap.mobile.i18n.AppLanguage
 
 /** Settings categories, shown as a menu; each opens its own page. */
-private enum class SettingsPage(val title: String) {
-    DATABASE("Baza danych"),
-    APPEARANCE("Wygląd"),
-    MEASUREMENTS("Pomiary"),
-    NOTIFICATION("Powiadomienie"),
-    DATA("Dane"),
-    BANDS("Wymuszanie pasm"),
-    TOOLS("Narzędzia"),
-    ABOUT("O aplikacji"),
+private enum class SettingsPage(private val pl: String, private val en: String) {
+    DATABASE("Baza danych", "Database"),
+    APPEARANCE("Wygląd", "Appearance"),
+    MEASUREMENTS("Pomiary", "Measurements"),
+    NOTIFICATION("Powiadomienie", "Notification"),
+    DATA("Dane", "Data"),
+    BANDS("Wymuszanie pasm", "Band locking"),
+    TOOLS("Narzędzia", "Tools"),
+    ABOUT("O aplikacji", "About");
+
+    val title: String get() = tr(pl, en)
 }
 
 @Composable
@@ -188,12 +193,13 @@ fun SettingsScreen(
 @Composable
 private fun SettingsMenu(settings: Settings, core: BtmapCore, logSize: Int, onOpen: (SettingsPage) -> Unit) {
     val accent = Btmap.colors.accent
-    val theme = when (settings.theme) { ThemeMode.SYSTEM -> "Auto"; ThemeMode.LIGHT -> "Jasny"; ThemeMode.DARK -> "Ciemny" }
+    val theme = when (settings.theme) { ThemeMode.SYSTEM -> "Auto"; ThemeMode.LIGHT -> tr("Jasny", "Light"); ThemeMode.DARK -> tr("Ciemny", "Dark") }
+    val language = when (settings.language) { AppLanguage.SYSTEM -> "Auto"; AppLanguage.PL -> "Polski"; AppLanguage.EN -> "English" }
     val notification = listOfNotNull(
-        "sygnał".takeIf { settings.notificationSignal },
-        "stacja".takeIf { settings.notificationStation },
-        "druga karta".takeIf { settings.notificationOtherSim },
-    ).joinToString(", ").ifEmpty { "tylko pasma" }
+        tr("sygnał", "signal").takeIf { settings.notificationSignal },
+        tr("stacja", "station").takeIf { settings.notificationStation },
+        tr("druga karta", "second SIM").takeIf { settings.notificationOtherSim },
+    ).joinToString(", ").ifEmpty { tr("tylko pasma", "bands only") }
     val host = runCatching { Uri.parse(settings.apiBaseUrl).host + (Uri.parse(settings.apiBaseUrl).port.takeIf { it > 0 }?.let { ":$it" } ?: "") }
         .getOrNull() ?: settings.apiBaseUrl
 
@@ -201,18 +207,18 @@ private fun SettingsMenu(settings: Settings, core: BtmapCore, logSize: Int, onOp
     val dbVersion by core.stations.version.collectAsStateWithLifecycle()
     val dbInfo = remember(settings.database, dbState, dbVersion) { core.stations.info(settings.database) }
     val dbSummary = when (val st = dbState) {
-        is ImportState.Running -> "${st.source.label} · pobieram…"
-        else -> settings.database.label + " · " + (dbInfo?.let { "${formatCount(it.sites)} stacji" } ?: "nie pobrano")
+        is ImportState.Running -> tr("${st.source.label} · pobieram…", "${st.source.label} · downloading…")
+        else -> settings.database.label + " · " + (dbInfo?.let { tr("${formatCount(it.sites)} stacji", "${formatCount(it.sites)} stations") } ?: tr("nie pobrano", "not downloaded"))
     }
     val items: List<Triple<SettingsPage, String, @Composable (Color) -> Unit>> = listOf(
         Triple(SettingsPage.DATABASE, dbSummary) { c -> DatabaseIcon(c) },
-        Triple(SettingsPage.APPEARANCE, "Motyw: $theme · sąsiednie ${if (settings.showNeighbours) "widoczne" else "ukryte"}") { c -> ThemeIcon(c) },
-        Triple(SettingsPage.MEASUREMENTS, "Odświeżanie co ${settings.liveRefreshMs / 1000} s · w tle oszczędnie") { c -> LiveIcon(c) },
-        Triple(SettingsPage.NOTIFICATION, "Pasma, $notification") { c -> Icon(Icons.Outlined.Notifications, null, tint = c) },
-        Triple(SettingsPage.DATA, "$logSize w logu · ${core.dictionary.size} nauczonych") { c -> LogIcon(c) },
+        Triple(SettingsPage.APPEARANCE, tr("Motyw: $theme · język: $language", "Theme: $theme · language: $language")) { c -> ThemeIcon(c) },
+        Triple(SettingsPage.MEASUREMENTS, tr("Odświeżanie co ${settings.liveRefreshMs / 1000} s · w tle oszczędnie", "Refresh every ${settings.liveRefreshMs / 1000} s · battery-saving in background")) { c -> LiveIcon(c) },
+        Triple(SettingsPage.NOTIFICATION, tr("Pasma, $notification", "Bands, $notification")) { c -> Icon(Icons.Outlined.Notifications, null, tint = c) },
+        Triple(SettingsPage.DATA, tr("$logSize w logu · ${core.dictionary.size} nauczonych", "$logSize in log · ${core.dictionary.size} learned")) { c -> LogIcon(c) },
         Triple(SettingsPage.BANDS, bandsSummary(settings)) { c -> BandLockIcon(c) },
         Triple(SettingsPage.TOOLS, toolsSummary(settings)) { c -> Icon(Icons.Outlined.Build, null, tint = c) },
-        Triple(SettingsPage.ABOUT, "Wersja ${BuildConfig.VERSION_NAME} · MIT") { c -> Icon(Icons.Outlined.Info, null, tint = c) },
+        Triple(SettingsPage.ABOUT, tr("Wersja ${BuildConfig.VERSION_NAME} · MIT", "Version ${BuildConfig.VERSION_NAME} · MIT")) { c -> Icon(Icons.Outlined.Info, null, tint = c) },
     )
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items.forEachIndexed { i, (page, subtitle, icon) ->
@@ -285,10 +291,10 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
                     Text(settings.database.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
                         when {
-                            running != null -> "Pobieranie…"
-                            failed != null -> "Pobieranie nie powiodło się"
-                            info == null -> "Nie pobrano"
-                            else -> "Zaktualizowano ${relativeTime(info.updatedAtMillis)}"
+                            running != null -> tr("Pobieranie…", "Downloading…")
+                            failed != null -> tr("Pobieranie nie powiodło się", "Download failed")
+                            info == null -> tr("Nie pobrano", "Not downloaded")
+                            else -> tr("Zaktualizowano ${relativeTime(info.updatedAtMillis)}", "Updated ${relativeTime(info.updatedAtMillis)}")
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = when {
@@ -321,7 +327,7 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
                             Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.displaySmall.copy(fontSize = MaterialTheme.typography.headlineLarge.fontSize), color = Btmap.colors.accent)
                             Spacer(Modifier.width(10.dp))
                             Text(
-                                "${formatCount(running.done)} / ${if (running.total > 0) formatCount(running.total) else "?"} stacji",
+                                tr("${formatCount(running.done)} / ${if (running.total > 0) formatCount(running.total) else "?"} stacji", "${formatCount(running.done)} / ${if (running.total > 0) formatCount(running.total) else "?"} stations"),
                                 style = MaterialTheme.typography.bodyMedium, color = Btmap.colors.muted,
                                 modifier = Modifier.padding(bottom = 6.dp),
                             )
@@ -329,7 +335,7 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
                         Spacer(Modifier.height(8.dp))
                         Meter(fraction, Btmap.colors.accent, Modifier.fillMaxWidth(), height = 8.dp)
                         Spacer(Modifier.height(8.dp))
-                        Text("${formatCount(running.cells)} komórek zapisanych", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+                        Text(tr("${formatCount(running.cells)} komórek zapisanych", "${formatCount(running.cells)} cells saved"), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
                         running.waitingUntil?.let { until -> RateLimitCountdown(until) }
                     } else {
                         if (settings.database == StationSource.BTSEARCH && info != null) {
@@ -347,12 +353,12 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
                             Spacer(Modifier.height(12.dp))
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatTile("Stacje", info?.let { formatCount(it.sites) } ?: "—", Modifier.weight(1f))
-                            StatTile("Komórki", info?.let { formatCount(it.cells) } ?: "—", Modifier.weight(1f))
+                            StatTile(tr("Stacje", "Stations"), info?.let { formatCount(it.sites) } ?: "—", Modifier.weight(1f))
+                            StatTile(tr("Komórki", "Cells"), info?.let { formatCount(it.cells) } ?: "—", Modifier.weight(1f))
                             StatTile(
-                                "Następna",
-                                if (settings.dbRefreshDays == 0) "ręcznie"
-                                else info?.let { relativeFuture(it.updatedAtMillis + settings.dbRefreshDays * 86_400_000L) } ?: "teraz",
+                                tr("Następna", "Next"),
+                                if (settings.dbRefreshDays == 0) tr("ręcznie", "manual")
+                                else info?.let { relativeFuture(it.updatedAtMillis + settings.dbRefreshDays * 86_400_000L) } ?: tr("teraz", "now"),
                                 Modifier.weight(1f),
                             )
                         }
@@ -362,20 +368,20 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
 
             failed?.let {
                 Spacer(Modifier.height(10.dp))
-                Text(it.message, style = MaterialTheme.typography.bodySmall, color = Btmap.colors.bad)
+                Text(translateMessage(it.message), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.bad)
             }
             if (outdatedSelection && running == null) {
                 Spacer(Modifier.height(10.dp))
-                Text("Zmieniono operatorów — zaktualizuj bazę, aby to zastosować.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.poor)
+                Text(tr("Zmieniono operatorów — zaktualizuj bazę, aby to zastosować.", "Operators changed — update the database to apply it."), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.poor)
             }
             if (info != null && info.cells == 0 && settings.database == StationSource.BTMAP && running == null) {
                 Spacer(Modifier.height(10.dp))
-                Hint("W BTMap nie ma jeszcze stacji spoza UKE. Pojawią się, gdy społeczność je doda.")
+                Hint(tr("W BTMap nie ma jeszcze stacji spoza UKE. Pojawią się, gdy społeczność je doda.", "BTMap has no stations outside UKE yet. They will appear as the community adds them."))
             }
 
             Spacer(Modifier.height(16.dp))
             if (running != null) {
-                WideButton("Anuluj pobieranie", danger = true) { DatabaseWorker.cancel(context) }
+                WideButton(tr("Anuluj pobieranie", "Cancel download"), danger = true) { DatabaseWorker.cancel(context) }
             } else {
                 val stale = remember(info, settings.btsearchMncs, settings.dbRefreshDays, settings.database) {
                     if (settings.database == StationSource.BTSEARCH)
@@ -383,32 +389,32 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
                     else emptySet()
                 }
                 when {
-                    info == null -> WideButton("Pobierz bazę", primary = true) { DatabaseWorker.runNow(context, settings) }
+                    info == null -> WideButton(tr("Pobierz bazę", "Download database"), primary = true) { DatabaseWorker.runNow(context, settings) }
                     stale.isNotEmpty() -> {
                         val names = DbOperators.ALL.filter { it.mnc in stale }.joinToString(", ") { it.name }
-                        WideButton("Pobierz: $names", primary = true) { DatabaseWorker.runNow(context, settings) }
+                        WideButton(tr("Pobierz: $names", "Download: $names"), primary = true) { DatabaseWorker.runNow(context, settings) }
                     }
-                    else -> WideButton("Odśwież wszystko", primary = false) { DatabaseWorker.runNow(context, settings, force = true) }
+                    else -> WideButton(tr("Odśwież wszystko", "Refresh all"), primary = false) { DatabaseWorker.runNow(context, settings, force = true) }
                 }
                 if (settings.dbWifiOnly) {
                     Spacer(Modifier.height(6.dp))
-                    Hint("Ruszy po połączeniu z Wi-Fi.")
+                    Hint(tr("Ruszy po połączeniu z Wi-Fi.", "Starts once connected to Wi-Fi."))
                 }
             }
         }
 
         // ---- Source ----
-        SectionLabel("Źródło", 2)
+        SectionLabel(tr("Źródło", "Source"), 2)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.enterAnimation(2)) {
             SourceCard(
                 title = "BTMap",
-                subtitle = "Stacje społeczności, bez danych z UKE",
+                subtitle = tr("Stacje społeczności, bez danych z UKE", "Community stations, without UKE data"),
                 selected = settings.database == StationSource.BTMAP,
                 modifier = Modifier.weight(1f),
             ) { onChange { it.copy(database = StationSource.BTMAP) } }
             SourceCard(
                 title = "BTSearch",
-                subtitle = "Baza btsearch.pl z pełnymi ID komórek",
+                subtitle = tr("Baza btsearch.pl z pełnymi ID komórek", "The btsearch.pl database with full cell IDs"),
                 selected = settings.database == StationSource.BTSEARCH,
                 modifier = Modifier.weight(1f),
             ) { onChange { it.copy(database = StationSource.BTSEARCH) } }
@@ -417,7 +423,7 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
         // ---- Operators (BTSearch) ----
         AnimatedVisibility(settings.database == StationSource.BTSEARCH, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionLabel("Operatorzy", 3)
+                SectionLabel(tr("Operatorzy", "Operators"), 3)
                 Card(Modifier.enterAnimation(3)) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         DbOperators.ALL.forEach { op ->
@@ -431,13 +437,13 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
                         }
                     }
                     Spacer(Modifier.height(10.dp))
-                    Hint("NetWorkS! to wspólna sieć T-Mobile i Orange; jej komórki trafiają też do tych operatorów.")
+                    Hint(tr("NetWorkS! to wspólna sieć T-Mobile i Orange; jej komórki trafiają też do tych operatorów.", "NetWorkS! is the shared T-Mobile and Orange network; its cells are also added to those operators."))
                 }
             }
         }
 
         // ---- Schedule ----
-        SectionLabel("Aktualizacja", 4)
+        SectionLabel(tr("Aktualizacja", "Updates"), 4)
         Card(Modifier.enterAnimation(4)) {
             Segmented(
                 options = Settings.DB_REFRESH_OPTIONS.map { (d, l) -> d to l.replace("Co ", "") },
@@ -445,7 +451,7 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
                 onSelect = { days -> onChange { it.copy(dbRefreshDays = days) } },
             )
             Spacer(Modifier.height(6.dp))
-            ToggleRow("Tylko przez Wi-Fi", "Bez zużywania danych komórkowych", settings.dbWifiOnly) { on ->
+            ToggleRow(tr("Tylko przez Wi-Fi", "Wi-Fi only"), tr("Bez zużywania danych komórkowych", "Without using mobile data"), settings.dbWifiOnly) { on ->
                 onChange { it.copy(dbWifiOnly = on) }
             }
         }
@@ -453,7 +459,7 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
         if (info != null && running == null) {
             Row(Modifier.fillMaxWidth().enterAnimation(5), horizontalArrangement = Arrangement.Center) {
                 TextButton(onClick = { confirmDelete = true }) {
-                    Text("Usuń pobraną bazę", color = Btmap.colors.bad, style = MaterialTheme.typography.labelLarge)
+                    Text(tr("Usuń pobraną bazę", "Delete downloaded database"), color = Btmap.colors.bad, style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -462,15 +468,15 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Usunąć bazę ${settings.database.label}?") },
-            text = { Text("Stacje przestaną być rozpoznawane, dopóki baza nie zostanie pobrana ponownie.") },
+            title = { Text(tr("Usunąć bazę ${settings.database.label}?", "Delete the ${settings.database.label} database?")) },
+            text = { Text(tr("Stacje przestaną być rozpoznawane, dopóki baza nie zostanie pobrana ponownie.", "Stations will not be recognised until the database is downloaded again.")) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false
                     core.stations.clear(settings.database)
-                }) { Text("Usuń", color = Btmap.colors.bad) }
+                }) { Text(tr("Usuń", "Delete"), color = Btmap.colors.bad) }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Anuluj") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Anuluj", "Cancel")) } },
             containerColor = Btmap.colors.card,
         )
     }
@@ -490,13 +496,13 @@ private fun OperatorProgressList(ops: List<OperatorProgress>) {
                     Text(op.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Crossfade(op.status, label = "opStatus") { status ->
                         when (status) {
-                            OperatorProgress.Status.DONE -> Text("✓ ${formatCount(op.cells)} komórek", style = MaterialTheme.typography.bodySmall, color = colors.good)
+                            OperatorProgress.Status.DONE -> Text(tr("✓ ${formatCount(op.cells)} komórek", "✓ ${formatCount(op.cells)} cells"), style = MaterialTheme.typography.bodySmall, color = colors.good)
                             OperatorProgress.Status.RUNNING -> Text(
-                                if (op.total > 0) "${(100 * op.done / op.total)}%" else "łączę…",
+                                if (op.total > 0) "${(100 * op.done / op.total)}%" else tr("łączę…", "connecting…"),
                                 style = MaterialTheme.typography.bodySmall, color = colors.accent, fontWeight = FontWeight.SemiBold,
                             )
-                            OperatorProgress.Status.PENDING -> Text("w kolejce", style = MaterialTheme.typography.bodySmall, color = colors.faint)
-                            OperatorProgress.Status.FAILED -> Text("błąd", style = MaterialTheme.typography.bodySmall, color = colors.bad)
+                            OperatorProgress.Status.PENDING -> Text(tr("w kolejce", "queued"), style = MaterialTheme.typography.bodySmall, color = colors.faint)
+                            OperatorProgress.Status.FAILED -> Text(tr("błąd", "error"), style = MaterialTheme.typography.bodySmall, color = colors.bad)
                         }
                     }
                 }
@@ -505,7 +511,7 @@ private fun OperatorProgressList(ops: List<OperatorProgress>) {
                     Meter(if (op.total > 0) op.done.toFloat() / op.total else 0.02f, brand, Modifier.fillMaxWidth(), height = 6.dp)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "${formatCount(op.done)} / ${if (op.total > 0) formatCount(op.total) else "?"} stacji · ${formatCount(op.cells)} komórek",
+                        tr("${formatCount(op.done)} / ${if (op.total > 0) formatCount(op.total) else "?"} stacji · ${formatCount(op.cells)} komórek", "${formatCount(op.done)} / ${if (op.total > 0) formatCount(op.total) else "?"} stations · ${formatCount(op.cells)} cells"),
                         style = MaterialTheme.typography.labelSmall, color = colors.muted,
                     )
                 }
@@ -527,7 +533,7 @@ private fun RateLimitCountdown(until: Long) {
     val left = ((until - now) / 1000).coerceAtLeast(0)
     Spacer(Modifier.height(8.dp))
     Text(
-        "BTSearch ogranicza liczbę zapytań — wznowię za %d:%02d".format(left / 60, left % 60),
+        tr("BTSearch ogranicza liczbę zapytań — wznowię za %d:%02d", "BTSearch limits the number of requests — resuming in %d:%02d").format(left / 60, left % 60),
         style = MaterialTheme.typography.bodySmall, color = Btmap.colors.poor,
     )
 }
@@ -643,20 +649,20 @@ private fun WideButton(text: String, primary: Boolean = false, danger: Boolean =
 private fun relativeTime(millis: Long): String {
     val minutes = (System.currentTimeMillis() - millis) / 60_000
     return when {
-        minutes < 1 -> "przed chwilą"
-        minutes < 60 -> "$minutes min temu"
-        minutes < 24 * 60 -> "${minutes / 60} godz. temu"
-        minutes < 48 * 60 -> "wczoraj"
-        else -> "${minutes / (24 * 60)} dni temu"
+        minutes < 1 -> tr("przed chwilą", "just now")
+        minutes < 60 -> tr("$minutes min temu", "$minutes min ago")
+        minutes < 24 * 60 -> tr("${minutes / 60} godz. temu", "${minutes / 60} h ago")
+        minutes < 48 * 60 -> tr("wczoraj", "yesterday")
+        else -> tr("${minutes / (24 * 60)} dni temu", "${minutes / (24 * 60)} days ago")
     }
 }
 
 private fun relativeFuture(millis: Long): String {
     val hours = (millis - System.currentTimeMillis()) / 3_600_000
     return when {
-        hours <= 0 -> "wkrótce"
-        hours < 24 -> "za $hours godz."
-        else -> "za ${(hours + 12) / 24} dni"
+        hours <= 0 -> tr("wkrótce", "soon")
+        hours < 24 -> tr("za $hours godz.", "in $hours h")
+        else -> tr("za ${(hours + 12) / 24} dni", "in ${(hours + 12) / 24} days")
     }
 }
 
@@ -668,20 +674,20 @@ private fun bandsSummary(settings: Settings): String {
     val app = LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp
     val status by app.shizuku.status.collectAsStateWithLifecycle()
     val active by app.bands.active.collectAsStateWithLifecycle()
-    if (status != ShizukuBridge.Status.READY || !settings.shizukuEnabled) return "Wymaga Shizuku"
+    if (status != ShizukuBridge.Status.READY || !settings.shizukuEnabled) return tr("Wymaga Shizuku", "Requires Shizuku")
     val restricted = active.filterValues { !it.isUnrestricted }
-    return if (restricted.isEmpty()) "Wszystkie pasma odblokowane" else "Ograniczone: " + describe(restricted.values.first())
+    return if (restricted.isEmpty()) tr("Wszystkie pasma odblokowane", "All bands unlocked") else tr("Ograniczone: ", "Restricted: ") + describe(restricted.values.first())
 }
 
 @Composable
 private fun toolsSummary(settings: Settings): String {
     val status by (LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp).shizuku.status.collectAsStateWithLifecycle()
     return "Shizuku: " + when {
-        status == ShizukuBridge.Status.READY && settings.shizukuEnabled -> "włączone"
-        status == ShizukuBridge.Status.READY -> "połączone, wyłączone"
-        status == ShizukuBridge.Status.NO_PERMISSION -> "wymaga połączenia"
-        status == ShizukuBridge.Status.NOT_RUNNING -> "nie uruchomione"
-        else -> "nie zainstalowane"
+        status == ShizukuBridge.Status.READY && settings.shizukuEnabled -> tr("włączone", "enabled")
+        status == ShizukuBridge.Status.READY -> tr("połączone, wyłączone", "connected, disabled")
+        status == ShizukuBridge.Status.NO_PERMISSION -> tr("wymaga połączenia", "needs authorising")
+        status == ShizukuBridge.Status.NOT_RUNNING -> tr("nie uruchomione", "not running")
+        else -> tr("nie zainstalowane", "not installed")
     }
 }
 
@@ -721,10 +727,10 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
                 )
                 Text(
                     when (status) {
-                        ShizukuBridge.Status.READY -> "Połączono z BTMap"
-                        ShizukuBridge.Status.NO_PERMISSION -> "Działa — BTMap nie jest jeszcze podłączony"
-                        ShizukuBridge.Status.NOT_RUNNING -> "Zainstalowane, usługa nie działa"
-                        ShizukuBridge.Status.NOT_INSTALLED -> "Nie zainstalowane"
+                        ShizukuBridge.Status.READY -> tr("Połączono z BTMap", "Connected to BTMap")
+                        ShizukuBridge.Status.NO_PERMISSION -> tr("Działa — BTMap nie jest jeszcze podłączony", "Running — BTMap is not authorised yet")
+                        ShizukuBridge.Status.NOT_RUNNING -> tr("Zainstalowane, usługa nie działa", "Installed, service not running")
+                        ShizukuBridge.Status.NOT_INSTALLED -> tr("Nie zainstalowane", "Not installed")
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (ready) Btmap.colors.good else Btmap.colors.muted,
@@ -733,25 +739,25 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
         }
     }
     Spacer(Modifier.height(12.dp))
-    Hint("Shizuku pozwala BTMap korzystać z uprawnień powłoki bez roota i bez komputera — np. odczytywać pasma i agregację prosto z modemu.")
+    Hint(tr("Shizuku pozwala BTMap korzystać z uprawnień powłoki bez roota i bez komputera — np. odczytywać pasma i agregację prosto z modemu.", "Shizuku lets BTMap use shell permissions without root or a computer — for example to read bands and aggregation straight from the modem."))
 
     Spacer(Modifier.height(14.dp))
     when (status) {
-        ShizukuBridge.Status.NOT_INSTALLED -> WideButton("Zainstaluj Shizuku", primary = true) {
+        ShizukuBridge.Status.NOT_INSTALLED -> WideButton(tr("Zainstaluj Shizuku", "Install Shizuku"), primary = true) {
             val market = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse("market://details?id=${ShizukuBridge.SHIZUKU_PACKAGE}"))
             runCatching { context.startActivity(market) }.onFailure {
                 context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/download/")))
             }
         }
         ShizukuBridge.Status.NOT_RUNNING -> {
-            WideButton("Otwórz Shizuku", primary = true) { shizuku.openShizuku(context) }
+            WideButton(tr("Otwórz Shizuku", "Open Shizuku"), primary = true) { shizuku.openShizuku(context) }
             Spacer(Modifier.height(6.dp))
-            Hint("Uruchom usługę w aplikacji Shizuku (przez debugowanie bezprzewodowe), a potem wróć tutaj.")
+            Hint(tr("Uruchom usługę w aplikacji Shizuku (przez debugowanie bezprzewodowe), a potem wróć tutaj.", "Start the service in the Shizuku app (via wireless debugging), then come back here."))
         }
         ShizukuBridge.Status.NO_PERMISSION -> {
-            WideButton("Podłącz BTMap w Shizuku", primary = true) { shizuku.requestPermission() }
+            WideButton(tr("Podłącz BTMap w Shizuku", "Authorise BTMap in Shizuku"), primary = true) { shizuku.requestPermission() }
             Spacer(Modifier.height(6.dp))
-            Hint("Shizuku zapyta, czy zezwolić BTMap. Możesz to też zrobić w Shizuku → Aplikacje autoryzowane.")
+            Hint(tr("Shizuku zapyta, czy zezwolić BTMap. Możesz to też zrobić w Shizuku → Aplikacje autoryzowane.", "Shizuku will ask whether to allow BTMap. You can also do it in Shizuku → Authorized applications."))
         }
         ShizukuBridge.Status.READY -> Unit
     }
@@ -760,8 +766,8 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
     // Unlocks only once BTMap is authorised in Shizuku.
     Box(Modifier.graphicsLayer { alpha = if (ready) 1f else 0.45f }) {
         ToggleRow(
-            "Włącz Shizuku",
-            if (ready) "BTMap użyje Shizuku do odczytu danych z modemu" else "Odblokuje się po podłączeniu BTMap w Shizuku",
+            tr("Włącz Shizuku", "Enable Shizuku"),
+            if (ready) tr("BTMap użyje Shizuku do odczytu danych z modemu", "BTMap will use Shizuku to read data from the modem") else tr("Odblokuje się po podłączeniu BTMap w Shizuku", "Unlocks once BTMap is authorised in Shizuku"),
             settings.shizukuEnabled && ready,
         ) { on -> if (ready) onChange { it.copy(shizukuEnabled = on) } }
     }
@@ -770,14 +776,14 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
         Row(verticalAlignment = Alignment.CenterVertically) {
             PulseDot(if (hasDump) Btmap.colors.good else Btmap.colors.poor, active = !hasDump)
             Text(
-                if (hasDump) "Pasma z modemu: aktywne" else "Włączam dostęp do modemu…",
+                if (hasDump) tr("Pasma z modemu: aktywne", "Bands from the modem: active") else tr("Włączam dostęp do modemu…", "Enabling modem access…"),
                 style = MaterialTheme.typography.bodySmall, color = if (hasDump) Btmap.colors.good else Btmap.colors.muted,
             )
         }
     }
     if (ready && settings.shizukuEnabled) {
         Spacer(Modifier.height(14.dp))
-        Hint("Wymuszanie pasm jest dostępne w osobnej kategorii ustawień.")
+        Hint(tr("Wymuszanie pasm jest dostępne w osobnej kategorii ustawień.", "Band locking has its own settings category."))
     }
 }
 
@@ -805,12 +811,12 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                 ) { BandLockIcon(Btmap.colors.poor) }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Wymaga Shizuku", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Podłącz BTMap w Shizuku i włącz je w Narzędziach.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+                    Text(tr("Wymaga Shizuku", "Requires Shizuku"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(tr("Podłącz BTMap w Shizuku i włącz je w Narzędziach.", "Authorise BTMap in Shizuku and enable it in Tools."), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
                 }
             }
             Spacer(Modifier.height(14.dp))
-            WideButton("Przejdź do Narzędzi", primary = true, onClick = onOpenTools)
+            WideButton(tr("Przejdź do Narzędzi", "Go to Tools"), primary = true, onClick = onOpenTools)
         }
         return
     }
@@ -867,17 +873,17 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
     fun apply(target: pl.btmap.mobile.tools.BandSelection, label: String) {
         val s = sim ?: return
         busy = true
-        feedback = if (mtk) BandFeedback(true, "Zapisuję pasma w modemie…", "Potem sprawdzam, na jakim paśmie jest SIM ${s.slotIndex + 1}")
-            else BandFeedback(true, "Wymuszam i sprawdzam…", "SIM ${s.slotIndex + 1} na chwilę przejdzie na 3G, potem przez ~30 s sprawdzam, na jakim paśmie zostaje")
+        feedback = if (mtk) BandFeedback(true, tr("Zapisuję pasma w modemie…", "Writing bands to the modem…"), tr("Potem sprawdzam, na jakim paśmie jest SIM ${s.slotIndex + 1}", "Then checking which band SIM ${s.slotIndex + 1} is on"))
+            else BandFeedback(true, tr("Wymuszam i sprawdzam…", "Locking and checking…"), tr("SIM ${s.slotIndex + 1} na chwilę przejdzie na 3G, potem przez ~30 s sprawdzam, na jakim paśmie zostaje", "SIM ${s.slotIndex + 1} will briefly switch to 3G, then for ~30 s I check which band it stays on"))
         scope.launch {
             val simLabel = "SIM ${s.slotIndex + 1} · " + Operators.displayName(s.registeredPlmn, s.networkOperatorName)
             val outcome = network.applyBands(s.slotIndex, s.subscriptionId, target)
             feedback = when (outcome) {
-                is pl.btmap.mobile.tools.BandLockOutcome.Applied -> BandFeedback(true, "Wymuszono pasma", "$simLabel · teraz ${outcome.band}")
-                is pl.btmap.mobile.tools.BandLockOutcome.Ignored -> BandFeedback(false, "Modem zignorował blokadę", "$simLabel · nadal ${outcome.band}. Ten telefon nie pozwala blokować pasm bez roota — użyj trybu sieci.")
-                pl.btmap.mobile.tools.BandLockOutcome.NoService -> BandFeedback(false, "Brak zasięgu na wybranych pasmach", "$simLabel · odblokuj więcej pasm")
-                pl.btmap.mobile.tools.BandLockOutcome.Restored -> BandFeedback(true, "Odblokowano wszystkie pasma", simLabel)
-                is pl.btmap.mobile.tools.BandLockOutcome.Failed -> BandFeedback(false, "Nie udało się", outcome.message)
+                is pl.btmap.mobile.tools.BandLockOutcome.Applied -> BandFeedback(true, tr("Wymuszono pasma", "Bands locked"), tr("$simLabel · teraz ${outcome.band}", "$simLabel · now ${outcome.band}"))
+                is pl.btmap.mobile.tools.BandLockOutcome.Ignored -> BandFeedback(false, tr("Modem zignorował blokadę", "The modem ignored the lock"), tr("$simLabel · nadal ${outcome.band}. Ten telefon nie pozwala blokować pasm bez roota — użyj trybu sieci.", "$simLabel · still ${outcome.band}. This phone does not allow band locking without root — use the network mode."))
+                pl.btmap.mobile.tools.BandLockOutcome.NoService -> BandFeedback(false, tr("Brak zasięgu na wybranych pasmach", "No service on the selected bands"), tr("$simLabel · odblokuj więcej pasm", "$simLabel · unlock more bands"))
+                pl.btmap.mobile.tools.BandLockOutcome.Restored -> BandFeedback(true, tr("Odblokowano wszystkie pasma", "All bands unlocked"), simLabel)
+                is pl.btmap.mobile.tools.BandLockOutcome.Failed -> BandFeedback(false, tr("Nie udało się", "Failed"), outcome.message)
             }
             val keep = outcome is pl.btmap.mobile.tools.BandLockOutcome.Applied || outcome is pl.btmap.mobile.tools.BandLockOutcome.NoService ||
                 outcome is pl.btmap.mobile.tools.BandLockOutcome.Restored
@@ -896,13 +902,13 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
     /** Factory band settings on every SIM. */
     fun resetAll() {
         busy = true
-        feedback = BandFeedback(true, "Przywracam domyślne pasma…", "Wszystkie karty SIM")
+        feedback = BandFeedback(true, tr("Przywracam domyślne pasma…", "Restoring default bands…"), tr("Wszystkie karty SIM", "All SIM cards"))
         scope.launch {
             val results = sims.map { s -> network.resetBands(s.slotIndex, s.subscriptionId) to s }
             sims.forEach { store.setActive(it.slotIndex, pl.btmap.mobile.tools.BandSelection()) }
             val failed = results.filter { it.first is pl.btmap.mobile.tools.BandLockOutcome.Failed }
-            feedback = if (failed.isEmpty()) BandFeedback(true, "Przywrócono domyślne pasma", "Wszystkie pasma odblokowane na ${sims.size} kartach SIM")
-                else BandFeedback(false, "Nie udało się przywrócić pasm", failed.joinToString { "SIM ${it.second.slotIndex + 1}" })
+            feedback = if (failed.isEmpty()) BandFeedback(true, tr("Przywrócono domyślne pasma", "Default bands restored"), tr("Wszystkie pasma odblokowane na ${sims.size} kartach SIM", "All bands unlocked on ${sims.size} SIM cards"))
+                else BandFeedback(false, tr("Nie udało się przywrócić pasm", "Could not restore the bands"), failed.joinToString { "SIM ${it.second.slotIndex + 1}" })
             lte = lteBands.toSet(); nr = nrBands.toSet()
             reload++
             busy = false
@@ -913,15 +919,15 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
         val s = sim ?: return
         modeBusy = true
         if (preset == pl.btmap.mobile.tools.NetworkModePreset.NR) {
-            feedback = BandFeedback(true, "Szukam 5G SA…", "SIM ${s.slotIndex + 1}: do 40 s. Jeśli go tu nie ma, przywrócę poprzedni tryb")
+            feedback = BandFeedback(true, tr("Szukam 5G SA…", "Looking for 5G SA…"), tr("SIM ${s.slotIndex + 1}: do 40 s. Jeśli go tu nie ma, przywrócę poprzedni tryb", "SIM ${s.slotIndex + 1}: up to 40 s. If it is not available here, I will restore the previous mode"))
         }
         scope.launch {
             val error = network.setMode(s.slotIndex, preset)
             val simLabel = "SIM ${s.slotIndex + 1} · " + Operators.displayName(s.registeredPlmn, s.networkOperatorName)
             feedback = if (error == null) {
                 mode = preset
-                BandFeedback(true, "Tryb sieci: ${preset.label}", simLabel)
-            } else BandFeedback(false, "Nie udało się zmienić trybu sieci", error)
+                BandFeedback(true, tr("Tryb sieci: ${preset.label}", "Network mode: ${preset.label}"), simLabel)
+            } else BandFeedback(false, tr("Nie udało się zmienić trybu sieci", "Could not change the network mode"), error)
             reload++
             modeBusy = false
         }
@@ -970,12 +976,12 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Crossfade(restricted, label = "lockTitle") { r ->
                         Text(
-                            if (r) "Pasma ograniczone" else "Wszystkie pasma odblokowane",
+                            if (r) tr("Pasma ograniczone", "Bands restricted") else tr("Wszystkie pasma odblokowane", "All bands unlocked"),
                             style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
                         )
                     }
                     Text(
-                        if (restricted) describe(current) else "Modem sam wybiera pasma",
+                        if (restricted) describe(current) else tr("Modem sam wybiera pasma", "The modem picks bands itself"),
                         style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
                     )
                 }
@@ -991,17 +997,17 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             Text(
                 when {
-                    modem == null -> "Sprawdzam modem…"
-                    mtk -> "Sterowanie: bezpośrednio w modemie MediaTek · pasma odczytane z modemu"
-                    else -> "Sterowanie: przez Androida (zależnie od modemu)"
+                    modem == null -> tr("Sprawdzam modem…", "Checking the modem…")
+                    mtk -> tr("Sterowanie: bezpośrednio w modemie MediaTek · pasma odczytane z modemu", "Control: directly in the MediaTek modem · bands read from the modem")
+                    else -> tr("Sterowanie: przez Androida (zależnie od modemu)", "Control: through Android (depends on the modem)")
                 },
                 style = MaterialTheme.typography.labelSmall, color = if (mtk) Btmap.colors.good else Btmap.colors.muted,
             )
             if (restricted) {
                 Spacer(Modifier.height(12.dp))
-                WideButton("Odblokuj wszystkie pasma") {
+                WideButton(tr("Odblokuj wszystkie pasma", "Unlock all bands")) {
                     lte = lteBands.toSet(); nr = nrBands.toSet()
-                    apply(pl.btmap.mobile.tools.BandSelection(), "wszystkie pasma")
+                    apply(pl.btmap.mobile.tools.BandSelection(), tr("wszystkie pasma", "all bands"))
                 }
             }
         }
@@ -1009,10 +1015,10 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
         // ---- Network mode (works on every phone) ----
         Card(Modifier.enterAnimation(2)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Tryb sieci", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                if (modeBusy) Text("zmieniam…", style = MaterialTheme.typography.labelMedium, color = Btmap.colors.accent)
+                Text(tr("Tryb sieci", "Network mode"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (modeBusy) Text(tr("zmieniam…", "changing…"), style = MaterialTheme.typography.labelMedium, color = Btmap.colors.accent)
             }
-            Text("Które technologie może używać karta. Działa na każdym telefonie.", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
+            Text(tr("Które technologie może używać karta. Działa na każdym telefonie.", "Which technologies the SIM may use. Works on every phone."), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
             Spacer(Modifier.height(12.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 pl.btmap.mobile.tools.NetworkModePreset.entries.forEach { preset ->
@@ -1051,8 +1057,8 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                 PulseDot(if (works) Btmap.colors.good else Btmap.colors.poor, active = false)
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    if (works) "Modem tego telefonu respektuje blokadę pasm."
-                    else "Modem tego telefonu ignoruje blokadę pasm (ogranicza tylko skanowanie w tle). Bez roota zostaje tryb sieci.",
+                    if (works) tr("Modem tego telefonu respektuje blokadę pasm.", "This phone's modem honours band locking.")
+                    else tr("Modem tego telefonu ignoruje blokadę pasm (ogranicza tylko skanowanie w tle). Bez roota zostaje tryb sieci.", "This phone's modem ignores band locking (it only limits background scans). Without root, the network mode is what remains."),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -1065,7 +1071,7 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
         Row(Modifier.enterAnimation(4), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(6.dp).clip(RoundedCornerShape(50)).background(Btmap.colors.good))
             Spacer(Modifier.width(6.dp))
-            Text(if (mtk) "obsługiwane przez modem (odczytane z modemu)" else "wykryte przez modem tego telefonu", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
+            Text(if (mtk) tr("obsługiwane przez modem (odczytane z modemu)", "supported by the modem (read from the modem)") else tr("wykryte przez modem tego telefonu", "detected by this phone's modem"), style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
         }
 
         // ---- Actions ----
@@ -1073,21 +1079,21 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
             val blocked = lte.isEmpty() || nr.isEmpty()
             WideButton(
                 when {
-                    busy -> "Wysyłam do modemu…"
-                    blocked -> "Zostaw co najmniej jedno pasmo LTE i 5G"
-                    changed -> "Wymuś wybrane pasma i sprawdź"
-                    else -> "Bez zmian"
+                    busy -> tr("Wysyłam do modemu…", "Sending to the modem…")
+                    blocked -> tr("Zostaw co najmniej jedno pasmo LTE i 5G", "Keep at least one LTE and one 5G band")
+                    changed -> tr("Wymuś wybrane pasma i sprawdź", "Lock the selected bands and check")
+                    else -> tr("Bez zmian", "No changes")
                 },
                 primary = changed && !blocked && !busy,
             ) { if (changed && !blocked && !busy) apply(selection, describe(selection)) }
             if (!selection.isUnrestricted) {
-                ActionButton("Zapisz jako konfigurację…") { naming = true }
+                ActionButton(tr("Zapisz jako konfigurację…", "Save as configuration…")) { naming = true }
             }
         }
 
         // ---- Saved configurations ----
         if (presets.isNotEmpty()) {
-            SectionLabel("Zapisane konfiguracje", 5)
+            SectionLabel(tr("Zapisane konfiguracje", "Saved configurations"), 5)
             Card(Modifier.enterAnimation(5)) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     presets.forEach { preset ->
@@ -1107,20 +1113,20 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                                     Text(preset.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                                     if (isActive) {
                                         Spacer(Modifier.width(8.dp))
-                                        Text("AKTYWNA", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.accent)
+                                        Text(tr("AKTYWNA", "ACTIVE"), style = MaterialTheme.typography.labelSmall, color = Btmap.colors.accent)
                                     }
                                 }
                                 Text(describe(preset.selection), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
                             }
                             if (!isActive) {
-                                ActionButton("Wymuś", primary = true, enabled = !busy) {
+                                ActionButton(tr("Wymuś", "Apply"), primary = true, enabled = !busy) {
                                     lte = preset.selection.lte.ifEmpty { lteBands.toSet() }
                                     nr = preset.selection.nr.ifEmpty { nrBands.toSet() }
                                     apply(preset.selection, preset.name)
                                 }
                             }
                             TextButton(onClick = { deleting = preset }) {
-                                Text("Usuń", color = Btmap.colors.bad, style = MaterialTheme.typography.labelMedium)
+                                Text(tr("Usuń", "Delete"), color = Btmap.colors.bad, style = MaterialTheme.typography.labelMedium)
                             }
                         }
                     }
@@ -1129,24 +1135,24 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
         }
         // ---- Reset ----
         Card(Modifier.enterAnimation(6)) {
-            Text("Domyślne pasma", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(tr("Domyślne pasma", "Default bands"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
-                "Przywraca fabryczne ustawienia: wszystkie pasma, które obsługuje modem, na obu kartach SIM.",
+                tr("Przywraca fabryczne ustawienia: wszystkie pasma, które obsługuje modem, na obu kartach SIM.", "Restores the factory setting: every band the modem supports, on both SIM cards."),
                 style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
             )
             Spacer(Modifier.height(12.dp))
-            WideButton("Resetuj pasma do domyślnych", danger = true) { if (!busy) confirmReset = true }
+            WideButton(tr("Resetuj pasma do domyślnych", "Reset bands to default"), danger = true) { if (!busy) confirmReset = true }
         }
-        Hint(if (mtk) "Blokada jest zapisana w modemie. Stan powyżej jest odczytywany z modemu przy każdym otwarciu tej strony." else "Wymuszenie działa do ponownego uruchomienia telefonu — potem zastosuj konfigurację jeszcze raz.")
+        Hint(if (mtk) tr("Blokada jest zapisana w modemie. Stan powyżej jest odczytywany z modemu przy każdym otwarciu tej strony.", "The lock is stored in the modem. The state above is read from the modem every time this page opens.") else tr("Wymuszenie działa do ponownego uruchomienia telefonu — potem zastosuj konfigurację jeszcze raz.", "The lock lasts until the phone restarts — then apply the configuration again."))
     }
 
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
-            title = { Text("Przywrócić domyślne pasma?") },
-            text = { Text("Wszystkie pasma obsługiwane przez modem zostaną odblokowane na obu kartach SIM.") },
-            confirmButton = { TextButton(onClick = { confirmReset = false; resetAll() }) { Text("Resetuj", color = Btmap.colors.bad) } },
-            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Anuluj") } },
+            title = { Text(tr("Przywrócić domyślne pasma?", "Restore default bands?")) },
+            text = { Text(tr("Wszystkie pasma obsługiwane przez modem zostaną odblokowane na obu kartach SIM.", "Every band the modem supports will be unlocked on both SIM cards.")) },
+            confirmButton = { TextButton(onClick = { confirmReset = false; resetAll() }) { Text(tr("Resetuj", "Reset"), color = Btmap.colors.bad) } },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(tr("Anuluj", "Cancel")) } },
             containerColor = Btmap.colors.card,
         )
     }
@@ -1154,14 +1160,14 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
         var name by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { naming = false },
-            title = { Text("Nazwa konfiguracji") },
+            title = { Text(tr("Nazwa konfiguracji", "Configuration name")) },
             text = {
                 Column {
                     Text(describe(selection), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = name, onValueChange = { name = it.take(40) }, singleLine = true,
-                        placeholder = { Text("np. Dom — 1800 + n78") },
+                        placeholder = { Text(tr("np. Dom — 1800 + n78", "e.g. Home — 1800 + n78")) },
                         shape = RoundedCornerShape(12.dp),
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Btmap.colors.accent, cursorColor = Btmap.colors.accent),
                     )
@@ -1171,20 +1177,20 @@ private fun BandsPage(settings: Settings, onOpenTools: () -> Unit) {
                 TextButton(onClick = {
                     val saved = store.savePreset(name, selection)
                     naming = false
-                    feedback = BandFeedback(true, "Zapisano konfigurację", saved.name)
-                }) { Text("Zapisz", color = Btmap.colors.accent) }
+                    feedback = BandFeedback(true, tr("Zapisano konfigurację", "Configuration saved"), saved.name)
+                }) { Text(tr("Zapisz", "Save"), color = Btmap.colors.accent) }
             },
-            dismissButton = { TextButton(onClick = { naming = false }) { Text("Anuluj") } },
+            dismissButton = { TextButton(onClick = { naming = false }) { Text(tr("Anuluj", "Cancel")) } },
             containerColor = Btmap.colors.card,
         )
     }
     deleting?.let { preset ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Usunąć „${preset.name}”?") },
-            text = { Text("Konfiguracja zniknie z listy. Pasma ustawione teraz w modemie się nie zmienią.") },
-            confirmButton = { TextButton(onClick = { store.deletePreset(preset.id); deleting = null }) { Text("Usuń", color = Btmap.colors.bad) } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Anuluj") } },
+            title = { Text(tr("Usunąć „${preset.name}”?", "Delete “${preset.name}”?")) },
+            text = { Text(tr("Konfiguracja zniknie z listy. Pasma ustawione teraz w modemie się nie zmienią.", "The configuration will be removed from the list. The bands currently set in the modem will not change.")) },
+            confirmButton = { TextButton(onClick = { store.deletePreset(preset.id); deleting = null }) { Text(tr("Usuń", "Delete"), color = Btmap.colors.bad) } },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text(tr("Anuluj", "Cancel")) } },
             containerColor = Btmap.colors.card,
         )
     }
@@ -1212,7 +1218,7 @@ private fun BandCard(
             Spacer(Modifier.weight(1f))
             val all = selected.containsAll(bands)
             TextButton(onClick = { onChange(if (all) emptySet() else bands.toSet()) }) {
-                Text(if (all) "Odznacz wszystkie" else "Zaznacz wszystkie", color = colors.accent, style = MaterialTheme.typography.labelMedium)
+                Text(if (all) tr("Odznacz wszystkie", "Deselect all") else tr("Zaznacz wszystkie", "Select all"), color = colors.accent, style = MaterialTheme.typography.labelMedium)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -1251,10 +1257,10 @@ private fun BandCard(
 }
 
 private fun describe(s: pl.btmap.mobile.tools.BandSelection): String {
-    if (s.isUnrestricted) return "wszystkie pasma"
+    if (s.isUnrestricted) return tr("wszystkie pasma", "all bands")
     val parts = mutableListOf<String>()
-    parts += if (s.lte.isEmpty()) "LTE: wszystkie" else "LTE: " + s.lte.sorted().joinToString(", ") { "B$it" }
-    parts += if (s.nr.isEmpty()) "5G: wszystkie" else "5G: " + s.nr.sorted().joinToString(", ") { "n$it" }
+    parts += if (s.lte.isEmpty()) tr("LTE: wszystkie", "LTE: all") else "LTE: " + s.lte.sorted().joinToString(", ") { "B$it" }
+    parts += if (s.nr.isEmpty()) tr("5G: wszystkie", "5G: all") else "5G: " + s.nr.sorted().joinToString(", ") { "n$it" }
     return parts.joinToString(" · ")
 }
 
@@ -1300,14 +1306,21 @@ private fun BandChips(bands: List<Int>, label: (Int) -> String, selected: Set<In
 
 @Composable
 private fun AppearancePage(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {
-    Label("Motyw")
+    Label(tr("Motyw", "Theme"))
     Segmented(
-        options = listOf(ThemeMode.SYSTEM to "Auto", ThemeMode.LIGHT to "Jasny", ThemeMode.DARK to "Ciemny"),
+        options = listOf(ThemeMode.SYSTEM to "Auto", ThemeMode.LIGHT to tr("Jasny", "Light"), ThemeMode.DARK to tr("Ciemny", "Dark")),
         selected = settings.theme,
         onSelect = { mode -> onChange { it.copy(theme = mode) } },
     )
     Spacer(Modifier.height(14.dp))
-    ToggleRow("Sąsiednie komórki", "Lista mierzonych komórek pod kartą operatora", settings.showNeighbours) { on ->
+    Label(tr("Język", "Language"))
+    Segmented(
+        options = listOf(AppLanguage.SYSTEM to "Auto", AppLanguage.PL to "Polski", AppLanguage.EN to "English"),
+        selected = settings.language,
+        onSelect = { lang -> onChange { it.copy(language = lang) } },
+    )
+    Spacer(Modifier.height(14.dp))
+    ToggleRow(tr("Sąsiednie komórki", "Neighbour cells"), tr("Lista mierzonych komórek pod kartą operatora", "List of measured cells under the operator card"), settings.showNeighbours) { on ->
         onChange { it.copy(showNeighbours = on) }
     }
 }
@@ -1328,13 +1341,13 @@ private fun ModemAccess(core: BtmapCore) {
         PulseDot(if (available) Btmap.colors.good else Btmap.colors.poor, active = !available)
         Spacer(Modifier.width(6.dp))
         Text(
-            if (available) "Pasma odczytywane z modemu" else "Pasma z modemu: wyłączone",
+            if (available) tr("Pasma odczytywane z modemu", "Bands read from the modem") else tr("Pasma z modemu: wyłączone", "Bands from the modem: off"),
             style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
         )
     }
     Spacer(Modifier.height(6.dp))
     if (available) {
-        Hint("Agregacja, szerokości i noga 5G pochodzą bezpośrednio z konfiguracji nośnych w modemie.")
+        Hint(tr("Agregacja, szerokości i noga 5G pochodzą bezpośrednio z konfiguracji nośnych w modemie.", "Aggregation, bandwidths and the 5G leg come straight from the modem's carrier configuration."))
         var last by remember { mutableStateOf(core.physicalChannels.lastRead) }
         LaunchedEffect(Unit) {
             while (true) {
@@ -1345,18 +1358,18 @@ private fun ModemAccess(core: BtmapCore) {
         Spacer(Modifier.height(6.dp))
         Text(
             last?.let { m ->
-                "Ostatni odczyt: " + m.entries.sortedBy { it.key }.joinToString(" · ") { (slot, list) ->
-                    "SIM ${slot + 1}: " + if (list.isEmpty()) "brak transmisji" else list.joinToString(" + ") { pc ->
+                tr("Ostatni odczyt: ", "Last read: ") + m.entries.sortedBy { it.key }.joinToString(" · ") { (slot, list) ->
+                    "SIM ${slot + 1}: " + if (list.isEmpty()) tr("brak transmisji", "no transmission") else list.joinToString(" + ") { pc ->
                         (if (pc.rat == pl.btmap.core.model.Rat.NR) "n" else "B") + (pc.band ?: "?") + " " + ((pc.bandwidthKhz ?: 0) / 1000) + " MHz"
                     }
                 }
-            } ?: "Ostatni odczyt: brak danych",
+            } ?: tr("Ostatni odczyt: brak danych", "Last read: no data"),
             style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted,
         )
     } else {
         Hint(
-            "Android pokazuje dokładne nośne (agregacja, 5G NSA) tylko aplikacjom z uprawnieniem DUMP. " +
-                "Nadaj je raz z komputera — bez roota, działa do odinstalowania aplikacji:",
+            tr("Android pokazuje dokładne nośne (agregacja, 5G NSA) tylko aplikacjom z uprawnieniem DUMP. ", "Android shows exact carriers (aggregation, 5G NSA) only to apps with the DUMP permission. ") +
+                tr("Nadaj je raz z komputera — bez roota, działa do odinstalowania aplikacji:", "Grant it once from a computer — no root needed, it lasts until the app is uninstalled:"),
         )
         Spacer(Modifier.height(8.dp))
         val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -1371,7 +1384,7 @@ private fun ModemAccess(core: BtmapCore) {
             style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
         )
         Spacer(Modifier.height(4.dp))
-        Hint("Stuknij, aby skopiować. Bez tego pasma w agregacji są szacowane.")
+        Hint(tr("Stuknij, aby skopiować. Bez tego pasma w agregacji są szacowane.", "Tap to copy. Without it, aggregation bands are estimated."))
     }
 }
 
@@ -1379,12 +1392,12 @@ private fun ModemAccess(core: BtmapCore) {
 private fun MeasurementsPage(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {
     val pending = (LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp).core.coverage.pending
     ToggleRow(
-        "Mapa zasięgu",
-        if (settings.coverageConsent == true) "Wysyłam anonimowe pomiary · w kolejce: $pending" else "Udostępniaj anonimowe pomiary do wspólnej mapy",
+        tr("Mapa zasięgu", "Coverage map"),
+        if (settings.coverageConsent == true) tr("Wysyłam anonimowe pomiary · w kolejce: $pending", "Sending anonymous measurements · queued: $pending") else tr("Udostępniaj anonimowe pomiary do wspólnej mapy", "Share anonymous measurements for the shared map"),
         settings.coverageConsent == true,
     ) { on -> onChange { it.copy(coverageConsent = on) } }
     Spacer(Modifier.height(14.dp))
-    Label("Odświeżanie na ekranie")
+    Label(tr("Odświeżanie na ekranie", "On-screen refresh"))
     Segmented(
         options = Settings.REFRESH_OPTIONS.map { it to "${it / 1000} s" },
         selected = settings.liveRefreshMs,
@@ -1392,20 +1405,20 @@ private fun MeasurementsPage(settings: Settings, onChange: ((Settings) -> Settin
     )
     Spacer(Modifier.height(10.dp))
     Hint(
-        "W tle aplikacja sama zwalnia: przy włączonym ekranie odświeża co 5 s, a przy wyłączonym " +
-            "nie używa własnego GPS i opiera się na zgłoszeniach modemu, żeby oszczędzać baterię.",
+        tr("W tle aplikacja sama zwalnia: przy włączonym ekranie odświeża co 5 s, a przy wyłączonym ", "In the background the app slows down on its own: with the screen on it refreshes every 5 s, and with it off ") +
+            tr("nie używa własnego GPS i opiera się na zgłoszeniach modemu, żeby oszczędzać baterię.", "it uses no GPS of its own and relies on modem reports to save battery."),
     )
 }
 
 @Composable
 private fun NotificationPage(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {
-    ToggleRow("Sygnał", "Przybliżone RSRP w treści", settings.notificationSignal) { on ->
+    ToggleRow(tr("Sygnał", "Signal"), tr("Przybliżone RSRP w treści", "Approximate RSRP in the text"), settings.notificationSignal) { on ->
         onChange { it.copy(notificationSignal = on) }
     }
-    ToggleRow("Stacja BTMap", "Adres i odległość zamiast numeru eNB", settings.notificationStation) { on ->
+    ToggleRow(tr("Stacja BTMap", "BTMap station"), tr("Adres i odległość zamiast numeru eNB", "Address and distance instead of the eNB number"), settings.notificationStation) { on ->
         onChange { it.copy(notificationStation = on) }
     }
-    ToggleRow("Druga karta SIM", "Skrót drugiej karty w nagłówku", settings.notificationOtherSim) { on ->
+    ToggleRow(tr("Druga karta SIM", "Second SIM"), tr("Skrót drugiej karty w nagłówku", "Second SIM summary in the header"), settings.notificationOtherSim) { on ->
         onChange { it.copy(notificationOtherSim = on) }
     }
 }
@@ -1423,7 +1436,7 @@ private fun ServerSettings(settings: Settings, onChange: ((Settings) -> Settings
     OutlinedTextField(
         value = url,
         onValueChange = { url = it; status = null },
-        label = { Text("Adres API") },
+        label = { Text(tr("Adres API", "API address")) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
         modifier = Modifier.fillMaxWidth(),
@@ -1444,26 +1457,26 @@ private fun ServerSettings(settings: Settings, onChange: ((Settings) -> Settings
     }
     Spacer(Modifier.height(10.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ActionButton(if (checking) "Sprawdzam…" else "Sprawdź", enabled = !checking) {
+        ActionButton(if (checking) tr("Sprawdzam…", "Checking…") else tr("Sprawdź", "Check"), enabled = !checking) {
             checking = true
             scope.launch {
                 status = runCatching {
                     val health = BtmapApi(url.trim()).health()
                     val towers = health.optJSONObject("stats")?.optInt("towers")
                     true to buildString {
-                        append("Połączono")
+                        append(tr("Połączono", "Connected"))
                         health.optString("version").takeIf { it.isNotEmpty() }?.let { append(" · BTMap $it") }
-                        towers?.let { append(" · $it stacji") }
+                        towers?.let { append(tr(" · $it stacji", " · $it stations")) }
                     }
-                }.getOrElse { false to "Brak połączenia: ${it.message ?: it.javaClass.simpleName}" }
+                }.getOrElse { false to tr("Brak połączenia: ${it.message ?: it.javaClass.simpleName}", "No connection: ${it.message ?: it.javaClass.simpleName}") }
                 checking = false
             }
         }
-        ActionButton("Zapisz", enabled = changed, primary = true) {
+        ActionButton(tr("Zapisz", "Save"), enabled = changed, primary = true) {
             onChange { it.copy(apiBaseUrl = url.trim().trimEnd('/')) }
         }
         if (settings.apiBaseUrl != BuildConfig.API_BASE_URL) {
-            ActionButton("Domyślny") {
+            ActionButton(tr("Domyślny", "Default")) {
                 url = BuildConfig.API_BASE_URL
                 onChange { it.copy(apiBaseUrl = BuildConfig.API_BASE_URL) }
             }
@@ -1479,12 +1492,12 @@ private fun DataSettings(core: BtmapCore, logSize: Int) {
     var dictionaryVersion by remember { mutableIntStateOf(0) }
     val learned = remember(dictionaryVersion) { core.dictionary.size }
 
-    StatRow("Komórki w logu", logSize.toString())
-    StatRow("Nauczone komórki", learned.toString())
-    Hint("Nauczone komórki pozwalają rozpoznać pasma w agregacji i podpisać sąsiednie komórki numerem eNB.")
+    StatRow(tr("Komórki w logu", "Cells in log"), logSize.toString())
+    StatRow(tr("Nauczone komórki", "Learned cells"), learned.toString())
+    Hint(tr("Nauczone komórki pozwalają rozpoznać pasma w agregacji i podpisać sąsiednie komórki numerem eNB.", "Learned cells make it possible to recognise aggregation bands and label neighbour cells with their eNB."))
     Spacer(Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ActionButton("Eksportuj CSV", enabled = logSize > 0, primary = true) {
+        ActionButton(tr("Eksportuj CSV", "Export CSV"), enabled = logSize > 0, primary = true) {
             scope.launch {
                 val file = withContext(Dispatchers.IO) {
                     val dir = File(context.cacheDir, "exports").apply { mkdirs() }
@@ -1496,22 +1509,22 @@ private fun DataSettings(core: BtmapCore, logSize: Int) {
                     .setType("text/csv")
                     .putExtra(Intent.EXTRA_STREAM, uri)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                context.startActivity(Intent.createChooser(send, "Eksportuj log"))
+                context.startActivity(Intent.createChooser(send, tr("Eksportuj log", "Export log")))
             }
         }
-        ActionButton("Wyczyść log", enabled = logSize > 0, danger = true) { confirm = "log" }
+        ActionButton(tr("Wyczyść log", "Clear log"), enabled = logSize > 0, danger = true) { confirm = "log" }
     }
     Spacer(Modifier.height(8.dp))
-    ActionButton("Zapomnij nauczone komórki", enabled = learned > 0, danger = true) { confirm = "dictionary" }
+    ActionButton(tr("Zapomnij nauczone komórki", "Forget learned cells"), enabled = learned > 0, danger = true) { confirm = "dictionary" }
 
     confirm?.let { what ->
         AlertDialog(
             onDismissRequest = { confirm = null },
-            title = { Text(if (what == "log") "Wyczyścić log?" else "Zapomnieć nauczone komórki?") },
+            title = { Text(if (what == "log") tr("Wyczyścić log?", "Clear the log?") else tr("Zapomnieć nauczone komórki?", "Forget learned cells?")) },
             text = {
                 Text(
-                    if (what == "log") "Usunie $logSize wpisów z telefonu. Tego nie da się cofnąć."
-                    else "Aplikacja nauczy się ich od nowa, ale do tego czasu pasma w agregacji mogą być nieznane.",
+                    if (what == "log") tr("Usunie $logSize wpisów z telefonu. Tego nie da się cofnąć.", "This removes $logSize entries from the phone. It cannot be undone.")
+                    else tr("Aplikacja nauczy się ich od nowa, ale do tego czasu pasma w agregacji mogą być nieznane.", "The app will learn them again, but until then aggregation bands may be unknown."),
                 )
             },
             confirmButton = {
@@ -1519,9 +1532,9 @@ private fun DataSettings(core: BtmapCore, logSize: Int) {
                     if (what == "log") core.clearLog() else core.clearDictionary()
                     dictionaryVersion++
                     confirm = null
-                }) { Text("Usuń", color = Btmap.colors.bad) }
+                }) { Text(tr("Usuń", "Delete"), color = Btmap.colors.bad) }
             },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Anuluj") } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text(tr("Anuluj", "Cancel")) } },
             containerColor = Btmap.colors.card,
         )
     }
@@ -1530,20 +1543,20 @@ private fun DataSettings(core: BtmapCore, logSize: Int) {
 @Composable
 private fun About() {
     val context = LocalContext.current
-    StatRow("Wersja", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-    StatRow("Licencja", "MIT")
+    StatRow(tr("Wersja", "Version"), "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+    StatRow(tr("Licencja", "License"), "MIT")
     Spacer(Modifier.height(10.dp))
-    ActionButton("Kod źródłowy na GitHubie") {
+    ActionButton(tr("Kod źródłowy na GitHubie", "Source code on GitHub")) {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/btmap-pl/btmap-mobile")))
     }
     Spacer(Modifier.height(10.dp))
     var saved by remember { mutableStateOf<String?>(null) }
-    ActionButton("Zapisz diagnostykę") {
-        saved = runCatching { pl.btmap.mobile.Diagnostics.save(context) }.getOrNull() ?: "błąd zapisu"
+    ActionButton(tr("Zapisz diagnostykę", "Save diagnostics")) {
+        saved = runCatching { pl.btmap.mobile.Diagnostics.save(context) }.getOrNull() ?: tr("błąd zapisu", "save error")
     }
     saved?.let {
         Spacer(Modifier.height(6.dp))
-        Hint("Zapisano w Pobranych: $it")
+        Hint(tr("Zapisano w Pobranych: $it", "Saved to Downloads: $it"))
     }
 }
 

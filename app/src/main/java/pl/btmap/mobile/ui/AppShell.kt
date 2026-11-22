@@ -58,8 +58,13 @@ import pl.btmap.mobile.ui.theme.Btmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pl.btmap.core.BtmapCore
 import pl.btmap.mobile.settings.Settings
+import pl.btmap.mobile.i18n.tr
 
-private enum class Tab(val title: String) { LIVE("Live"), MAP("Mapa"), LOG("Log"), SETTINGS("Ustawienia") }
+private enum class Tab(private val pl: String, private val en: String) {
+    LIVE("Live", "Live"), MAP("Mapa", "Map"), LOG("Log", "Log"), SETTINGS("Ustawienia", "Settings");
+
+    val title: String get() = tr(pl, en)
+}
 
 /** What fills the content area: a tab, or the details of one log entry. */
 private sealed interface Screen {
@@ -91,7 +96,7 @@ fun AppShell(
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
             TopBar(
-                title = if (detailKey != null) "Szczegóły" else tab.title,
+                title = if (detailKey != null) tr("Szczegóły", "Details") else tab.title,
                 running = state.running,
             )
             AnimatedContent(

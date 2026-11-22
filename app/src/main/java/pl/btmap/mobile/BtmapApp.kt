@@ -18,11 +18,14 @@ import pl.btmap.mobile.tools.NetworkControl
 import pl.btmap.mobile.tools.ShizukuBridge
 import pl.btmap.mobile.work.CoverageUploadWorker
 import pl.btmap.mobile.work.DatabaseWorker
+import pl.btmap.mobile.i18n.Lang
 
 class BtmapApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashReporter.install(this)
+        Lang.apply(settings.settings.value.language)
+        scope.launch { settings.settings.map { it.language }.distinctUntilChanged().collect(Lang::apply) }
     }
 
     private fun isOnline(): Boolean {

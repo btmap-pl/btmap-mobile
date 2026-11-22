@@ -79,6 +79,9 @@ import pl.btmap.core.model.Rat
 import pl.btmap.core.model.SimState
 import pl.btmap.core.radio.Operators
 import pl.btmap.mobile.ui.theme.Btmap
+import pl.btmap.mobile.i18n.tr
+import pl.btmap.mobile.i18n.plural
+import pl.btmap.mobile.i18n.translateMessage
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -93,7 +96,7 @@ fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding
         if (sims.isEmpty()) {
             item {
                 Text(
-                    if (state.running) "Czekam na dane z modemu…" else "Monitor zatrzymany",
+                    if (state.running) tr("Czekam na dane z modemu…", "Waiting for modem data…") else tr("Monitor zatrzymany", "Monitor stopped"),
                     Modifier.padding(24.dp), color = Btmap.colors.muted,
                 )
             }
@@ -111,7 +114,7 @@ private fun LocationStrip(state: LiveState) {
         PulseDot(if (fix != null) Btmap.colors.good else Btmap.colors.faint, active = fix == null)
         Spacer(Modifier.width(4.dp))
         Text(
-            if (fix == null) "Szukam lokalizacji…"
+            if (fix == null) tr("Szukam lokalizacji…", "Looking for location…")
             else buildString {
                 append("%.5f°  %.5f°".format(java.util.Locale.ROOT, fix.lat, fix.lng))
                 fix.accuracyMeters?.let { append("  ±${it.toInt()} m") }
@@ -157,13 +160,13 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
         OperatorHeader(sim, brand)
         sim.error?.let {
             Spacer(Modifier.height(8.dp))
-            Text(it, color = colors.bad, style = MaterialTheme.typography.bodySmall)
+            Text(translateMessage(it), color = colors.bad, style = MaterialTheme.typography.bodySmall)
         }
 
         val primary = sim.primary
         if (primary == null) {
             Spacer(Modifier.height(16.dp))
-            Text("Brak obsługującej komórki", color = colors.muted)
+            Text(tr("Brak obsługującej komórki", "No serving cell"), color = colors.muted)
             return@Column
         }
 
@@ -215,7 +218,7 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
                     SignalHero(cell)
                     carrier?.signalAgeMs?.takeIf { !carrier.isPrimary }?.let { age ->
                         Text(
-                            if (age < 3_000) "Pomiar SCell z modemu" else "Ostatni pomiar SCell z modemu · ${age / 1000} s temu",
+                            if (age < 3_000) tr("Pomiar SCell z modemu", "SCell measurement from the modem") else tr("Ostatni pomiar SCell z modemu · ${age / 1000} s temu", "Last SCell measurement from the modem · ${age / 1000} s ago"),
                             style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
                             modifier = Modifier.padding(top = 6.dp),
                         )
@@ -239,7 +242,7 @@ private fun SimCard(sim: SimState, state: LiveState, stationUrl: (Station) -> St
         val neighbours = sim.neighbours.filter { it !in shown }
         if (showNeighbours && neighbours.isNotEmpty()) {
             Spacer(Modifier.height(18.dp))
-            SectionTitle("Sąsiednie · ${neighbours.size}")
+            SectionTitle(tr("Sąsiednie · ${neighbours.size}", "Neighbours · ${neighbours.size}"))
             neighbours.take(10).forEach { NeighbourRow(it, state, sim.registeredPlmn ?: sim.simPlmn) }
         }
     }
@@ -266,7 +269,7 @@ private fun OperatorHeader(sim: SimState, brand: Color) {
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Tag("SIM ${sim.slotIndex + 1}")
-                if (sim.isDataSim) Tag("DANE")
+                if (sim.isDataSim) Tag(tr("DANE", "DATA"))
                 if (sim.isRoaming) Tag("ROAMING", Btmap.colors.poor)
             }
         }
@@ -308,7 +311,7 @@ private fun ModeRow(sim: SimState) {
         }
         if (sim.nrAvailable) {
             Spacer(Modifier.weight(1f))
-            Pill("5G gotowe", Btmap.colors.muted, style = PillStyle.DASHED, modifier = Modifier.padding(bottom = 4.dp))
+            Pill(tr("5G gotowe", "5G ready"), Btmap.colors.muted, style = PillStyle.DASHED, modifier = Modifier.padding(bottom = 4.dp))
         }
     }
 }
@@ -423,12 +426,12 @@ private fun NoMeasurement(carrier: Carrier) {
         MiniBars(0f, Btmap.colors.faint)
         Spacer(Modifier.width(12.dp))
         Column {
-            Text("Czekam na pomiar tego pasma", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(tr("Czekam na pomiar tego pasma", "Waiting for a measurement of this band"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(
                 when (carrier.source) {
-                    CarrierSource.LEARNED -> "Modem mierzy to pasmo co kilka sekund — wynik pojawi się tutaj."
-                    CarrierSource.STATION -> "Pasmo ustalone na podstawie stacji w BTMap."
-                    else -> "Modem mierzy to pasmo co kilka sekund — wynik pojawi się tutaj."
+                    CarrierSource.LEARNED -> tr("Modem mierzy to pasmo co kilka sekund — wynik pojawi się tutaj.", "The modem measures this band every few seconds — the result will appear here.")
+                    CarrierSource.STATION -> tr("Pasmo ustalone na podstawie stacji w BTMap.", "Band determined from the station in BTMap.")
+                    else -> tr("Modem mierzy to pasmo co kilka sekund — wynik pojawi się tutaj.", "The modem measures this band every few seconds — the result will appear here.")
                 },
                 style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
             )
@@ -448,7 +451,7 @@ private fun IdentityGrid(cell: Cell, bandwidth: String? = null) {
         physicalLabel(id.rat) to id.physicalId?.toString(),
         channelLabel(id.rat) to id.channel?.toString(),
         "DL" to id.band?.downlinkMhz?.let { "%.1f MHz".format(it) },
-        "Pasmo" to id.band?.let { "${it.shortName} · ${it.label}" },
+        tr("Pasmo", "Band") to id.band?.let { "${it.shortName} · ${it.label}" },
         "BW" to (bandwidth ?: id.bandwidthKhz?.let { if (it % 1000 == 0) "${it / 1000}" else "%.1f".format(it / 1000.0) })?.let { "$it MHz" },
     ).filter { it.second != null }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -475,7 +478,7 @@ private fun StationBlock(cell: Cell, state: LiveState, stationUrl: (Station) -> 
     Spacer(Modifier.height(16.dp))
     if (station == null) {
         Text(
-            if (state.isLookedUp(cell)) "Brak tej stacji w pobranej bazie" else "Szukam stacji…",
+            if (state.isLookedUp(cell)) tr("Brak tej stacji w pobranej bazie", "This station is not in the downloaded database") else tr("Szukam stacji…", "Looking up the station…"),
             style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
         )
         return
@@ -529,15 +532,15 @@ private fun SectionTitle(text: String) {
 private fun AggregationSection(carriers: List<Carrier>, primaryRat: Rat, brand: Color, selectedIndex: Int, fromModem: Boolean, onSelect: (Carrier) -> Unit) {
     val total = carriers.sumOf { it.bandwidthKhz ?: 0 }
     val title = buildString {
-        append(if (carriers.any { it.rat != primaryRat }) "Agregacja i 5G" else "Agregacja")
+        append(if (carriers.any { it.rat != primaryRat }) tr("Agregacja i 5G", "Aggregation and 5G") else tr("Agregacja", "Aggregation"))
         append(" · ${carriers.size} ")
-        append(if (carriers.size in 2..4) "pasma" else "pasm")
+        append(plural(carriers.size, "pasmo", "pasma", "pasm", "band", "bands"))
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         SectionTitle(title)
         Spacer(Modifier.width(8.dp))
         Text(
-            if (fromModem) "Z MODEMU" else "SZACUNEK",
+            if (fromModem) tr("Z MODEMU", "FROM MODEM") else tr("SZACUNEK", "ESTIMATE"),
             style = MaterialTheme.typography.labelSmall,
             color = if (fromModem) Btmap.colors.good else Btmap.colors.faint,
             modifier = Modifier.padding(bottom = 4.dp),
@@ -624,8 +627,8 @@ private fun CarrierTile(carrier: Carrier, index: Int, primaryRat: Rat, brand: Co
                 Spacer(Modifier.width(6.dp))
                 Text(
                     id?.nodeLabel ?: when (carrier.source) {
-                        CarrierSource.UNKNOWN -> "nieznana komórka"
-                        CarrierSource.STATION -> "pasmo wg BTMap"
+                        CarrierSource.UNKNOWN -> tr("nieznana komórka", "unknown cell")
+                        CarrierSource.STATION -> tr("pasmo wg BTMap", "band from BTMap")
                         else -> ""
                     },
                     style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
@@ -645,10 +648,10 @@ private fun CarrierTile(carrier: Carrier, index: Int, primaryRat: Rat, brand: Co
             if (dbm != null) {
                 MiniBars(powerFraction(dbm), q.color())
                 carrier.signalAgeMs?.takeIf { it >= 3_000 }?.let {
-                    Text("${it / 1000} s temu", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.faint)
+                    Text(tr("${it / 1000} s temu", "${it / 1000} s ago"), style = MaterialTheme.typography.labelSmall, color = Btmap.colors.faint)
                 }
             } else {
-                Text("czekam na pomiar", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.faint)
+                Text(tr("czekam na pomiar", "waiting for measurement"), style = MaterialTheme.typography.labelSmall, color = Btmap.colors.faint)
             }
         }
     }
@@ -748,11 +751,11 @@ fun PermissionScreen(onRequest: () -> Unit) {
         Text("BTMap", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
         Text(
-            "Do odczytu komórek potrzebny jest dostęp do lokalizacji (Android ukrywa bez niego ID komórek) " +
-                "oraz do stanu telefonu (lista kart SIM).",
+            tr("Do odczytu komórek potrzebny jest dostęp do lokalizacji (Android ukrywa bez niego ID komórek) ", "Reading cells needs location access (without it Android hides cell IDs) ") +
+                tr("oraz do stanu telefonu (lista kart SIM).", "and phone state access (the list of SIM cards)."),
             color = Btmap.colors.muted,
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = onRequest) { Text("Nadaj uprawnienia") }
+        Button(onClick = onRequest) { Text(tr("Nadaj uprawnienia", "Grant permissions")) }
     }
 }

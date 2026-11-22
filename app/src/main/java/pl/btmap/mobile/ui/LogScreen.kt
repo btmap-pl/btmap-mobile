@@ -41,6 +41,9 @@ import pl.btmap.mobile.ui.theme.Btmap
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import pl.btmap.mobile.i18n.Lang
+import pl.btmap.mobile.i18n.plural
+import pl.btmap.mobile.i18n.tr
 
 /** Cells the phone was connected to, grouped by day, newest first. Survives restarts. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -55,8 +58,8 @@ fun LogScreen(
 ) {
     if (entries.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(contentPadding).padding(24.dp).enterAnimation()) {
-            Text("Log jest pusty", style = MaterialTheme.typography.titleMedium)
-            Text("Tu pojawi się każda komórka, z którą telefon był połączony.", color = Btmap.colors.muted)
+            Text(tr("Log jest pusty", "The log is empty"), style = MaterialTheme.typography.titleMedium)
+            Text(tr("Tu pojawi się każda komórka, z którą telefon był połączony.", "Every cell the phone has been connected to will appear here."), color = Btmap.colors.muted)
         }
         return
     }
@@ -69,11 +72,11 @@ fun LogScreen(
         item(key = "header") {
             Row(Modifier.padding(start = 20.dp, end = 12.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${entries.size} ${cellsWord(entries.size)} · ${entries.count { it.lastSeenMillis > System.currentTimeMillis() - 10_000 }} teraz",
+                    tr("${entries.size} ${cellsWord(entries.size)} · ${entries.count { it.lastSeenMillis > System.currentTimeMillis() - 10_000 }} teraz", "${entries.size} ${cellsWord(entries.size)} · ${entries.count { it.lastSeenMillis > System.currentTimeMillis() - 10_000 }} now"),
                     style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted, modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { confirmClear = true }) {
-                    Text("Wyczyść", color = Btmap.colors.muted, style = MaterialTheme.typography.labelMedium)
+                    Text(tr("Wyczyść", "Clear"), color = Btmap.colors.muted, style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -97,12 +100,12 @@ fun LogScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Wyczyścić log?") },
-            text = { Text("Usunie ${entries.size} ${cellsWord(entries.size)} z telefonu. Tego nie da się cofnąć.") },
+            title = { Text(tr("Wyczyścić log?", "Clear the log?")) },
+            text = { Text(tr("Usunie ${entries.size} ${cellsWord(entries.size)} z telefonu. Tego nie da się cofnąć.", "This removes ${entries.size} ${cellsWord(entries.size)} from the phone. It cannot be undone.")) },
             confirmButton = {
-                TextButton(onClick = { confirmClear = false; onClear() }) { Text("Wyczyść", color = Btmap.colors.bad) }
+                TextButton(onClick = { confirmClear = false; onClear() }) { Text(tr("Wyczyść", "Clear"), color = Btmap.colors.bad) }
             },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Anuluj") } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(tr("Anuluj", "Cancel")) } },
             containerColor = Btmap.colors.card,
         )
     }
@@ -174,14 +177,10 @@ private fun dayLabel(millis: Long): String {
     cal.timeInMillis = millis
     val day = cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
     return when (day) {
-        today -> "Dziś"
-        yesterday -> "Wczoraj"
-        else -> SimpleDateFormat("EEEE, d MMMM yyyy", Locale("pl")).format(Date(millis))
+        today -> tr("Dziś", "Today")
+        yesterday -> tr("Wczoraj", "Yesterday")
+        else -> SimpleDateFormat("EEEE, d MMMM yyyy", Lang.locale).format(Date(millis))
     }
 }
 
-private fun cellsWord(n: Int) = when {
-    n == 1 -> "komórka"
-    n % 10 in 2..4 && n % 100 !in 12..14 -> "komórki"
-    else -> "komórek"
-}
+private fun cellsWord(n: Int) = plural(n, "komórka", "komórki", "komórek", "cell", "cells")

@@ -59,10 +59,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import pl.btmap.core.model.Rat
 import pl.btmap.mobile.ui.theme.Btmap
+import pl.btmap.mobile.i18n.tr
 
 // ---- Signal quality -------------------------------------------------------------------------
 
-enum class Quality(val label: String) { EXCELLENT("Świetny"), GOOD("Dobry"), FAIR("Średni"), POOR("Słaby"), BAD("Bardzo słaby") }
+enum class Quality(private val pl: String, private val en: String) {
+    EXCELLENT("Świetny", "Excellent"), GOOD("Dobry", "Good"), FAIR("Średni", "Fair"), POOR("Słaby", "Poor"), BAD("Bardzo słaby", "Very poor");
+
+    val label: String get() = tr(pl, en)
+}
 
 /** RSRP / SS-RSRP / RSCP / RSSI → quality, with thresholds per measurement. */
 fun powerQuality(dbm: Int?, rat: Rat): Quality? {

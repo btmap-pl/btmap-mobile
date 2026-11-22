@@ -9,10 +9,14 @@ import pl.btmap.core.stations.DbOperators
 import pl.btmap.core.stations.StationSource
 import pl.btmap.mobile.BuildConfig
 import pl.btmap.mobile.ui.theme.ThemeMode
+import pl.btmap.mobile.i18n.tr
+import pl.btmap.mobile.i18n.AppLanguage
 
 /** User settings. Monitoring in the background is not a setting: the app adapts on its own. */
 data class Settings(
     val theme: ThemeMode = ThemeMode.SYSTEM,
+    /** UI language; SYSTEM follows the phone. */
+    val language: AppLanguage = AppLanguage.SYSTEM,
     /** Cell refresh while the app is on screen. */
     val liveRefreshMs: Long = 2_000,
     val apiBaseUrl: String = BuildConfig.API_BASE_URL,
@@ -36,7 +40,11 @@ data class Settings(
 ) {
     companion object {
         val REFRESH_OPTIONS = listOf(1_000L, 2_000L, 5_000L)
-        val DB_REFRESH_OPTIONS = listOf(1 to "Codziennie", 7 to "Co tydzień", 30 to "Co miesiąc", 0 to "Ręcznie")
+        val DB_REFRESH_OPTIONS: List<Pair<Int, String>>
+            get() = listOf(
+                1 to tr("Codziennie", "Daily"), 7 to tr("Co tydzień", "Weekly"),
+                30 to tr("Co miesiąc", "Monthly"), 0 to tr("Ręcznie", "Manual"),
+            )
     }
 }
 
@@ -65,6 +73,7 @@ class SettingsStore(context: Context) {
         val d = Settings()
         return Settings(
             theme = runCatching { ThemeMode.valueOf(prefs.getString("theme", null)!!) }.getOrDefault(d.theme),
+            language = runCatching { AppLanguage.valueOf(prefs.getString("language", null)!!) }.getOrDefault(d.language),
             liveRefreshMs = prefs.getLong("liveRefreshMs", d.liveRefreshMs),
             apiBaseUrl = prefs.getString("apiBaseUrl", null)?.takeIf { it.isNotBlank() } ?: d.apiBaseUrl,
             notificationSignal = prefs.getBoolean("notificationSignal", d.notificationSignal),
@@ -85,6 +94,7 @@ class SettingsStore(context: Context) {
     private fun write(s: Settings) {
         prefs.edit()
             .putString("theme", s.theme.name)
+            .putString("language", s.language.name)
             .putLong("liveRefreshMs", s.liveRefreshMs)
             .putString("apiBaseUrl", s.apiBaseUrl)
             .putBoolean("notificationSignal", s.notificationSignal)

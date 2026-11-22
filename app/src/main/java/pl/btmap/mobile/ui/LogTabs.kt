@@ -47,8 +47,15 @@ import pl.btmap.mobile.ui.theme.Btmap
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import pl.btmap.mobile.i18n.Lang
+import pl.btmap.mobile.i18n.tr
+import pl.btmap.mobile.i18n.translateChange
 
-private enum class LogView(val label: String) { CELLS("Komórki"), HISTORY("Historia") }
+private enum class LogView(private val pl: String, private val en: String) {
+    CELLS("Komórki", "Cells"), HISTORY("Historia", "History");
+
+    val label: String get() = tr(pl, en)
+}
 
 /** Log tab: the cells the phone has used, or the timeline of every change. */
 @Composable
@@ -102,13 +109,13 @@ private fun HistoryList(events: List<CellEvent>, contentPadding: PaddingValues) 
     val colors = Btmap.colors
     if (events.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(contentPadding).padding(24.dp)) {
-            Text("Brak zmian", style = MaterialTheme.typography.titleMedium)
-            Text("Tu pojawi się każda zmiana komórki: nowy PCI, pasmo, agregacja, utrata zasięgu.", color = colors.muted)
+            Text(tr("Brak zmian", "No changes"), style = MaterialTheme.typography.titleMedium)
+            Text(tr("Tu pojawi się każda zmiana komórki: nowy PCI, pasmo, agregacja, utrata zasięgu.", "Every cell change will appear here: a new PCI, band, aggregation, loss of service."), color = colors.muted)
         }
         return
     }
     val time = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
-    val day = remember { SimpleDateFormat("d MMMM", Locale("pl")) }
+    val day = remember(Lang.english) { SimpleDateFormat("d MMMM", Lang.locale) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = contentPadding) {
         var lastDay = ""
         events.forEachIndexed { index, e ->
@@ -139,7 +146,7 @@ private fun HistoryList(events: List<CellEvent>, contentPadding: PaddingValues) 
                             if (!lost) Text(e.mode, style = MaterialTheme.typography.labelMedium, color = colors.accent)
                         }
                         Text(
-                            e.changes.joinToString(" · "),
+                            e.changes.joinToString(" · ") { translateChange(it) },
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (lost) colors.bad else MaterialTheme.colorScheme.onSurface,
                         )

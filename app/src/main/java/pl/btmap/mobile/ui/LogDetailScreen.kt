@@ -55,6 +55,7 @@ import pl.btmap.mobile.ui.theme.Btmap
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import pl.btmap.mobile.i18n.tr
 
 /** Everything known about one logged cell: identity, radio, signal history and its BTMap station. */
 @Composable
@@ -109,7 +110,7 @@ fun LogDetailScreen(
                 Text(" dBm", style = MaterialTheme.typography.titleMedium, color = Btmap.colors.muted, modifier = Modifier.padding(bottom = 6.dp))
                 Spacer(Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(bottom = 4.dp)) {
-                    Text("NAJLEPSZY", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
+                    Text(tr("NAJLEPSZY", "BEST"), style = MaterialTheme.typography.labelSmall, color = Btmap.colors.muted)
                     Text(entry.bestDbm?.let { "$it dBm" } ?: "—", style = MaterialTheme.typography.labelLarge, color = powerQuality(entry.bestDbm, id.rat).color())
                 }
             }
@@ -117,19 +118,19 @@ fun LogDetailScreen(
             Sparkline(entry.history, brand, Modifier.fillMaxWidth().height(96.dp))
             Spacer(Modifier.height(6.dp))
             Text(
-                "${entry.samples} pomiarów · ${clock.format(Date(entry.firstSeenMillis))} – ${clock.format(Date(entry.lastSeenMillis))}",
+                tr("${entry.samples} pomiarów · ${clock.format(Date(entry.firstSeenMillis))} – ${clock.format(Date(entry.lastSeenMillis))}", "${entry.samples} samples · ${clock.format(Date(entry.firstSeenMillis))} – ${clock.format(Date(entry.lastSeenMillis))}"),
                 style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
             )
         }
 
         // Identity
         DetailCard(Modifier.enterAnimation(2)) {
-            CardTitle("Identyfikacja")
+            CardTitle(tr("Identyfikacja", "Identity"))
             KeyValues(
                 listOf(
                     (if (id.rat == Rat.NR) "gNB" else if (id.rat == Rat.LTE) "eNB" else "RNC") to id.nodeId?.toString(),
                     "CID" to id.localCellId?.toString(),
-                    "Sektor" to (if (isNode) CellMath.sector(id.localCellId)?.toString() else null),
+                    tr("Sektor", "Sector") to (if (isNode) CellMath.sector(id.localCellId)?.toString() else null),
                     (if (id.rat == Rat.NR) "NCI" else "CI") to id.cid?.toString(),
                     (if (isNode) "TAC" else "LAC") to id.areaCode?.toString(),
                     "PLMN" to id.plmn?.toString(),
@@ -144,17 +145,17 @@ fun LogDetailScreen(
                 listOf(
                     (when (id.rat) { Rat.LTE, Rat.NR -> "PCI"; Rat.WCDMA -> "PSC"; Rat.GSM -> "BSIC" }) to id.physicalId?.toString(),
                     (when (id.rat) { Rat.LTE -> "EARFCN"; Rat.NR -> "NR-ARFCN"; Rat.WCDMA -> "UARFCN"; Rat.GSM -> "ARFCN" }) to id.channel?.toString(),
-                    "Pasmo" to id.band?.let { "${it.shortName} · ${it.label} MHz" },
+                    tr("Pasmo", "Band") to id.band?.let { "${it.shortName} · ${it.label} MHz" },
                     "DL" to id.band?.downlinkMhz?.let { "%.1f MHz".format(it) },
-                    "Szerokość" to id.bandwidthKhz?.let { if (it % 1000 == 0) "${it / 1000} MHz" else "%.1f MHz".format(it / 1000.0) },
-                    "Rola" to when (entry.lastRole) { CellRole.PRIMARY -> "PCell"; CellRole.SECONDARY -> "SCell / NR"; CellRole.NEIGHBOUR -> "sąsiednia" },
+                    tr("Szerokość", "Bandwidth") to id.bandwidthKhz?.let { if (it % 1000 == 0) "${it / 1000} MHz" else "%.1f MHz".format(it / 1000.0) },
+                    tr("Rola", "Role") to when (entry.lastRole) { CellRole.PRIMARY -> "PCell"; CellRole.SECONDARY -> "SCell / NR"; CellRole.NEIGHBOUR -> tr("sąsiednia", "neighbour") },
                 ),
             )
         }
 
         // Last measurement
         DetailCard(Modifier.enterAnimation(4)) {
-            CardTitle("Ostatni pomiar")
+            CardTitle(tr("Ostatni pomiar", "Last measurement"))
             val s = entry.lastSignal
             KeyValues(
                 when (id.rat) {
@@ -181,17 +182,17 @@ fun LogDetailScreen(
             StationCard(station, entry, stationUrl, Modifier.enterAnimation(5))
         } else if (pl.btmap.core.api.NodeKey.of(id) != null) {
             DetailCard(Modifier.enterAnimation(5)) {
-                CardTitle("Stacja")
-                Text("Tej komórki nie ma jeszcze w pobranej bazie stacji.", color = Btmap.colors.muted)
+                CardTitle(tr("Stacja", "Station"))
+                Text(tr("Tej komórki nie ma jeszcze w pobranej bazie stacji.", "This cell is not in the downloaded station database yet."), color = Btmap.colors.muted)
             }
         }
 
         // Where it was heard
         entry.bestFix?.let { fix ->
             DetailCard(Modifier.enterAnimation(6)) {
-                CardTitle("Najlepszy odbiór w miejscu")
+                CardTitle(tr("Najlepszy odbiór w miejscu", "Best reception at"))
                 Text("%.5f°  %.5f°".format(Locale.ROOT, fix.lat, fix.lng), style = MaterialTheme.typography.bodyLarge)
-                fix.accuracyMeters?.let { Text("dokładność ±${it.toInt()} m", style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted) }
+                fix.accuracyMeters?.let { Text(tr("dokładność ±${it.toInt()} m", "accuracy ±${it.toInt()} m"), style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted) }
             }
         }
     }
@@ -211,7 +212,7 @@ private fun StationCard(station: Station, entry: LogEntry, stationUrl: (Station)
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(stationUrl(station))))
             },
     ) {
-        CardTitle("Stacja BTMap")
+        CardTitle(tr("Stacja BTMap", "BTMap station"))
         Row(verticalAlignment = Alignment.CenterVertically) {
             PinIcon(Btmap.colors.accent)
             Spacer(Modifier.width(10.dp))
@@ -221,14 +222,14 @@ private fun StationCard(station: Station, entry: LogEntry, stationUrl: (Station)
         KeyValues(
             listOf(
                 "ID" to station.stationId,
-                "Pasma" to station.bands.takeIf { it.isNotEmpty() }?.joinToString(" · "),
-                "Operatorzy" to station.operators.takeIf { it.isNotEmpty() }?.joinToString(", "),
-                "Odległość" to dist?.let(::formatDistance),
-                "Kierunek" to bearing?.let { "${it.toInt()}° ${compass(it)}" },
+                tr("Pasma", "Bands") to station.bands.takeIf { it.isNotEmpty() }?.joinToString(" · "),
+                tr("Operatorzy", "Operators") to station.operators.takeIf { it.isNotEmpty() }?.joinToString(", "),
+                tr("Odległość", "Distance") to dist?.let(::formatDistance),
+                tr("Kierunek", "Bearing") to bearing?.let { "${it.toInt()}° ${compass(it)}" },
             ),
         )
         Spacer(Modifier.height(6.dp))
-        Text("Otwórz w BTMap →", style = MaterialTheme.typography.labelLarge, color = Btmap.colors.accent)
+        Text(tr("Otwórz w BTMap →", "Open in BTMap →"), style = MaterialTheme.typography.labelLarge, color = Btmap.colors.accent)
     }
 }
 
@@ -298,7 +299,7 @@ private fun Sparkline(values: List<Int>, color: Color, modifier: Modifier) {
     LaunchedEffect(Unit) { progress.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
     val track = Btmap.colors.meterTrack
     if (values.size < 2) {
-        Text("Za mało pomiarów na wykres", modifier = modifier.padding(top = 30.dp), color = Btmap.colors.faint, style = MaterialTheme.typography.bodySmall)
+        Text(tr("Za mało pomiarów na wykres", "Not enough samples for a chart"), modifier = modifier.padding(top = 30.dp), color = Btmap.colors.faint, style = MaterialTheme.typography.bodySmall)
         return
     }
     val min = (values.min() - 3).toFloat()

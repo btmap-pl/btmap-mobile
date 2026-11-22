@@ -10,16 +10,26 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import pl.btmap.core.BtmapCore
 import pl.btmap.core.model.Rat
+import pl.btmap.mobile.i18n.tr
 
 /** Which radio technologies a SIM may use (Android's allowed network types). */
-enum class NetworkModePreset(val label: String, val description: String, val mask: Long) {
-    AUTO("Auto", "Wszystko, co obsługuje telefon", -1),
-    NR_LTE("5G + 4G", "Bez 3G i 2G", Types.LTE or Types.LTE_CA or Types.NR),
-    LTE("Tylko 4G", "Bez 5G, 3G i 2G", Types.LTE or Types.LTE_CA),
-    NR("Tylko 5G (SA)", "Wymaga 5G SA w tym miejscu", Types.NR),
-    NO_NR("4G + 3G + 2G", "Bez 5G", Types.LTE or Types.LTE_CA or Types.UMTS_ALL or Types.GSM_ALL),
-    UMTS("Tylko 3G", "3G i 2G", Types.UMTS_ALL or Types.GSM_ALL),
-    GSM("Tylko 2G", "GSM / EDGE", Types.GSM_ALL);
+enum class NetworkModePreset(
+    private val labelPl: String,
+    private val labelEn: String,
+    private val descriptionPl: String,
+    private val descriptionEn: String,
+    val mask: Long,
+) {
+    AUTO("Auto", "Auto", "Wszystko, co obsługuje telefon", "Everything the phone supports", -1),
+    NR_LTE("5G + 4G", "5G + 4G", "Bez 3G i 2G", "No 3G or 2G", Types.LTE or Types.LTE_CA or Types.NR),
+    LTE("Tylko 4G", "4G only", "Bez 5G, 3G i 2G", "No 5G, 3G or 2G", Types.LTE or Types.LTE_CA),
+    NR("Tylko 5G (SA)", "5G only (SA)", "Wymaga 5G SA w tym miejscu", "Needs 5G SA where you are", Types.NR),
+    NO_NR("4G + 3G + 2G", "4G + 3G + 2G", "Bez 5G", "No 5G", Types.LTE or Types.LTE_CA or Types.UMTS_ALL or Types.GSM_ALL),
+    UMTS("Tylko 3G", "3G only", "3G i 2G", "3G and 2G", Types.UMTS_ALL or Types.GSM_ALL),
+    GSM("Tylko 2G", "2G only", "GSM / EDGE", "GSM / EDGE", Types.GSM_ALL);
+
+    val label: String get() = tr(labelPl, labelEn)
+    val description: String get() = tr(descriptionPl, descriptionEn)
 }
 
 /** Bits of TelephonyManager.NETWORK_TYPE_BITMASK_* (1 << (networkType - 1)). */
@@ -120,7 +130,7 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
 
     /** Sets the network mode of [slot]. Returns null on success or an error message. */
     suspend fun setMode(slot: Int, preset: NetworkModePreset): String? {
-        val original = originalMask(slot) ?: return "Nie udało się odczytać ustawień sieci"
+        val original = originalMask(slot) ?: return tr("Nie udało się odczytać ustawień sieci", "Could not read the network settings")
         // Leaving 5G SA on MediaTek: give the modem its LTE bands back first.
         restoreSaBands(slot)
         if (preset == NetworkModePreset.NR && MtkBandControl.supported(slot) != null) {
@@ -129,7 +139,7 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
             return null
         }
         val mask = if (preset == NetworkModePreset.AUTO) original else preset.mask
-        if (!setMask(slot, mask)) return "Telefon odrzucił zmianę trybu sieci"
+        if (!setMask(slot, mask)) return tr("Telefon odrzucił zmianę trybu sieci", "The phone rejected the network mode change")
         prefs.edit().putString("mode_$slot", preset.name).apply()
         if (preset == NetworkModePreset.AUTO) prefs.edit().remove("original_$slot").apply()
         return null
@@ -142,17 +152,17 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
      * everything is put back and the reason returned.
      */
     private suspend fun forceSa(slot: Int): String? {
-        val supported = MtkBandControl.supported(slot) ?: return "Modem nie podał obsługiwanych pasm"
+        val supported = MtkBandControl.supported(slot) ?: return tr("Modem nie podał obsługiwanych pasm", "The modem did not report its supported bands")
         val current = MtkBandControl.current(slot) ?: supported
-        val unusedLte = (supported.lteBands - BandLock.POLISH_LTE.toSet()).maxOrNull() ?: return "Modem nie ma pasma LTE do wyłączenia"
-        val previousMask = currentMask(slot) ?: return "Nie udało się odczytać ustawień sieci"
+        val unusedLte = (supported.lteBands - BandLock.POLISH_LTE.toSet()).maxOrNull() ?: return tr("Modem nie ma pasma LTE do wyłączenia", "The modem has no LTE band to disable")
+        val previousMask = currentMask(slot) ?: return tr("Nie udało się odczytać ustawień sieci", "Could not read the network settings")
         prefs.edit().putString("sa_lte_$slot", current.lte).putLong("sa_mask_$slot", previousMask).apply()
 
-        if (!setMask(slot, NetworkModePreset.NR_LTE.mask)) return "Telefon odrzucił zmianę trybu sieci"
+        if (!setMask(slot, NetworkModePreset.NR_LTE.mask)) return tr("Telefon odrzucił zmianę trybu sieci", "The phone rejected the network mode change")
         val saLte = MtkBandControl.mask(setOf(unusedLte), supported.lte.length)
         if (!MtkBandControl.write(slot, current.copy(lte = saLte))) {
             restoreSaBands(slot)
-            return "Modem odrzucił ustawienie 5G SA"
+            return tr("Modem odrzucił ustawienie 5G SA", "The modem rejected the 5G SA setting")
         }
         val deadline = System.currentTimeMillis() + 40_000
         while (System.currentTimeMillis() < deadline) {
@@ -161,7 +171,7 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
             if (pcell?.rat == Rat.NR) return null
         }
         restoreSaBands(slot)
-        return "W tym miejscu nie ma 5G SA operatora — przywrócono poprzedni tryb"
+        return tr("W tym miejscu nie ma 5G SA operatora — przywrócono poprzedni tryb", "No operator 5G SA here — the previous mode was restored")
     }
 
     /** Undoes [forceSa] if it is active on [slot]. */
@@ -199,7 +209,7 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
     suspend fun resetBands(slot: Int, subId: Int): BandLockOutcome {
         val mtk = if (MtkBandControl.supported(slot) != null) MtkBandControl.reset(slot) else null
         runCatching { BandLock.apply(subId, BandSelection()) }
-        return if (mtk == false) BandLockOutcome.Failed("Modem nie przyjął domyślnych pasm") else BandLockOutcome.Restored
+        return if (mtk == false) BandLockOutcome.Failed(tr("Modem nie przyjął domyślnych pasm", "The modem did not accept the default bands")) else BandLockOutcome.Restored
     }
 
     /**
@@ -213,7 +223,7 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
     }
 
     private suspend fun applyMediatek(slot: Int, selection: BandSelection): BandLockOutcome {
-        if (!MtkBandControl.apply(slot, selection)) return BandLockOutcome.Failed("Modem odrzucił konfigurację pasm")
+        if (!MtkBandControl.apply(slot, selection)) return BandLockOutcome.Failed(tr("Modem odrzucił konfigurację pasm", "The modem rejected the band configuration"))
         if (selection.isUnrestricted) return BandLockOutcome.Restored
         // The modem moves on its own; wait until the SIM sits on an allowed band.
         val deadline = System.currentTimeMillis() + 45_000
@@ -230,18 +240,18 @@ class NetworkControl(context: Context, private val shizuku: ShizukuBridge, priva
                 return BandLockOutcome.Applied(label)
             }
         }
-        return if (label == null) BandLockOutcome.NoService else BandLockOutcome.Applied("$label (modem jeszcze przełącza)")
+        return if (label == null) BandLockOutcome.NoService else BandLockOutcome.Applied(tr("$label (modem jeszcze przełącza)", "$label (the modem is still switching)"))
     }
 
     private suspend fun applyAndroid(slot: Int, subId: Int, selection: BandSelection): BandLockOutcome {
         val sent = runCatching { BandLock.apply(subId, selection) }
-        if (sent.isFailure) return BandLockOutcome.Failed(sent.exceptionOrNull()?.message ?: "Błąd Shizuku")
-        if (sent.getOrNull() == false) return BandLockOutcome.Failed("Modem odrzucił konfigurację")
+        if (sent.isFailure) return BandLockOutcome.Failed(sent.exceptionOrNull()?.message ?: tr("Błąd Shizuku", "Shizuku error"))
+        if (sent.getOrNull() == false) return BandLockOutcome.Failed(tr("Modem odrzucił konfigurację", "The modem rejected the configuration"))
         if (selection.isUnrestricted) {
             reselect(slot)
             return BandLockOutcome.Restored
         }
-        if (!reselect(slot)) return BandLockOutcome.Failed("Nie udało się wymusić ponownego wyboru sieci")
+        if (!reselect(slot)) return BandLockOutcome.Failed(tr("Nie udało się wymusić ponownego wyboru sieci", "Could not force a network reselection"))
 
         // Watch the SIM after it is back on LTE/NR. Some modems land on an allowed band first and
         // return to a blocked one moments later (the lock only limited the scan), so the verdict

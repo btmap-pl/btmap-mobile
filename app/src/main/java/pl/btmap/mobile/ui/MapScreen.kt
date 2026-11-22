@@ -88,8 +88,13 @@ import pl.btmap.mobile.ui.theme.Btmap
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import pl.btmap.mobile.i18n.tr
 
-private enum class MapMode(val label: String) { STATIONS("Nadajniki"), COVERAGE("Zasięg") }
+private enum class MapMode(private val pl: String, private val en: String) {
+    STATIONS("Nadajniki", "Stations"), COVERAGE("Zasięg", "Coverage");
+
+    val label: String get() = tr(pl, en)
+}
 
 /** The station the SIM in [slot] is connected to, for highlighting. */
 private data class Connected(val slot: Int, val lat: Double, val lng: Double, val color: Int, val label: String)
@@ -260,7 +265,7 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
                     }
                     val available = layers[operator].orEmpty()
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ChipButton("Wszystkie pasma", layerKey == "", colors.accent) { layerKey = "" }
+                        ChipButton(tr("Wszystkie pasma", "All bands"), layerKey == "", colors.accent) { layerKey = "" }
                         available.forEach { l ->
                             val key = "${l.tech}|${l.band}"
                             ChipButton("${l.tech} ${l.band}", layerKey == key, colors.accent) { layerKey = key }
@@ -268,7 +273,7 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
                     }
                     if (available.isEmpty()) {
                         Text(
-                            "Brak jeszcze pomiarów $operator. Pojawią się, gdy użytkownicy BTMap je prześlą.",
+                            tr("Brak jeszcze pomiarów $operator. Pojawią się, gdy użytkownicy BTMap je prześlą.", "No $operator measurements yet. They will appear once BTMap users send them."),
                             style = MaterialTheme.typography.bodySmall, color = colors.muted,
                         )
                     }
@@ -276,9 +281,9 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
                     val pending = remember(uploads, state.snapshot.timestampMillis) { app.core.coverage.pending }
                     Text(
                         when {
-                            !consent -> "Twoje pomiary nie są wysyłane — włącz w Ustawienia → Pomiary"
-                            pending > 0 -> "Twoje pomiary czekające na wysłanie: $pending"
-                            else -> "Twoje pomiary są wysłane"
+                            !consent -> tr("Twoje pomiary nie są wysyłane — włącz w Ustawienia → Pomiary", "Your measurements are not being sent — turn it on in Settings → Measurements")
+                            pending > 0 -> tr("Twoje pomiary czekające na wysłanie: $pending", "Your measurements waiting to be sent: $pending")
+                            else -> tr("Twoje pomiary są wysłane", "Your measurements are sent")
                         },
                         style = MaterialTheme.typography.labelSmall, color = colors.faint,
                     )
@@ -286,9 +291,9 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
             }
 
             if (mode == MapMode.STATIONS && zoom < MIN_STATION_ZOOM) {
-                Hint("Przybliż mapę, aby zobaczyć nadajniki")
+                Hint(tr("Przybliż mapę, aby zobaczyć nadajniki", "Zoom in to see stations"))
             } else if (mode == MapMode.STATIONS && loadedSites == 0 && app.core.stations.info(app.core.stations.source.value) == null) {
-                Hint("Pobierz bazę stacji w Ustawienia → Baza danych")
+                Hint(tr("Pobierz bazę stacji w Ustawienia → Baza danych", "Download the station database in Settings → Database"))
             }
         }
 

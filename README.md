@@ -59,7 +59,8 @@ With Shizuku running and BTMap authorised in it:
 - Grants itself the `DUMP` permission, so aggregation details work without a computer.
 
 ### Settings
-Grouped into categories: appearance (system, light or dark theme), Live screen, notification,
+Grouped into categories: appearance (system, light or dark theme; Polish or English, by
+default following the phone), Live screen, notification,
 station database, tools, band locking, coverage sharing and about (including a diagnostics
 export for bug reports).
 

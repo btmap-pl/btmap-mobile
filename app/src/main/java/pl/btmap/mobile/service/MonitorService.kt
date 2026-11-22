@@ -27,6 +27,7 @@ import pl.btmap.core.PowerMode
 import pl.btmap.mobile.BtmapApp
 import pl.btmap.mobile.MainActivity
 import pl.btmap.mobile.R
+import pl.btmap.mobile.i18n.tr
 
 /**
  * Keeps the core running while the app is not on screen and shows the current bands and station
@@ -71,7 +72,7 @@ class MonitorService : Service() {
             if (!uiVisible) core.stop()
             return START_NOT_STICKY
         }
-        val initial = NotificationContent("BTMap", "Uruchamiam monitor sieci…", emptyList())
+        val initial = NotificationContent("BTMap", tr("Uruchamiam monitor sieci…", "Starting the network monitor…"), emptyList())
         try {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, build(initial), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } catch (e: RuntimeException) {
@@ -128,8 +129,8 @@ class MonitorService : Service() {
     private fun ensureChannel() {
         if (notifications.getNotificationChannel(CHANNEL_ID) != null) return
         notifications.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Monitor sieci", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Aktualne pasma i stacja, gdy BTMap działa w tle"
+            NotificationChannel(CHANNEL_ID, tr("Monitor sieci", "Network monitor"), NotificationManager.IMPORTANCE_LOW).apply {
+                description = tr("Aktualne pasma i stacja, gdy BTMap działa w tle", "Current bands and station while BTMap runs in the background")
                 setShowBadge(false)
                 enableVibration(false)
                 setSound(null, null)

@@ -7,6 +7,7 @@ import pl.btmap.core.model.Rat
 import pl.btmap.core.model.SimState
 import pl.btmap.core.radio.Operators
 import pl.btmap.mobile.settings.Settings
+import pl.btmap.mobile.i18n.tr
 
 /** What the ongoing notification shows; compared to skip identical updates. */
 data class NotificationContent(val title: String, val text: String, val lines: List<String>, val header: String? = null)
@@ -19,7 +20,7 @@ object NotificationText {
 
     fun from(state: LiveState, settings: Settings = Settings()): NotificationContent {
         val sims = state.snapshot.sims.filter { it.primary != null }
-        if (sims.isEmpty()) return NotificationContent("BTMap", "Brak zasięgu", emptyList())
+        if (sims.isEmpty()) return NotificationContent("BTMap", tr("Brak zasięgu", "No service"), emptyList())
         val main = sims.firstOrNull { it.isDataSim } ?: sims.first()
         val title = "${operator(main)} · ${main.mode.label} · ${bands(state, main)}"
         val text = details(state, main, settings)

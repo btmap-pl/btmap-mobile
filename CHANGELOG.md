@@ -4,6 +4,13 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.0-beta.2] - 2026-11-22
+
+### Added
+- **English language.** The whole interface, the notification and the cell history are
+  available in English. Settings → Appearance → Language: Auto (follows the phone; English
+  on any phone not set to Polish), Polski or English. The switch applies immediately.
+
 ## [0.1.0-beta.1] - 2026-11-22
 
 The first public beta.
@@ -53,4 +60,5 @@ The first public beta.
   BTMap station source are not available to testers until the API is publicly deployed.
 - Band locking targets MediaTek modems.
 
+[0.1.0-beta.2]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.1
