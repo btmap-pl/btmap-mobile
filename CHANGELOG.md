@@ -4,6 +4,20 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.0-beta.13] - 2026-11-22
+
+### Added
+- **Live modem screen** (root, Qualcomm): Settings → *Live modem* shows LTE downlink figures
+  straight from the modem's own logs, refreshed twice a second: throughput (Mb/s), MCS (average
+  and last), BLER, resource blocks, MIMO 2×2 share, retransmissions and the modulation mix
+  (QPSK / 16QAM / 64QAM / 256QAM). The session runs only while the screen is open.
+- Core decodes the modem's multi-SIM wrapper and the LTE PDSCH statistics log (0xB173, format 50),
+  checked against a recording from a Galaxy S25 and the 3GPP TBS table.
+
+### Fixed
+- Modem log recording counted no packets on dual-SIM phones: logs inside the multi-SIM wrapper are
+  now recognised.
+
 ## [0.1.0-beta.12] - 2026-11-22
 
 ### Changed
@@ -158,6 +172,7 @@ The first public beta.
   BTMap station source are not available to testers until the API is publicly deployed.
 - Band locking targets MediaTek modems.
 
+[0.1.0-beta.13]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.10
