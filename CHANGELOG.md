@@ -4,7 +4,7 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0-beta.4] - 2026-11-22
 
 ### Changed
 - The Live screen starts straight with the SIM cards: no title bar and no GPS coordinates line.
@@ -81,6 +81,7 @@ The first public beta.
   BTMap station source are not available to testers until the API is publicly deployed.
 - Band locking targets MediaTek modems.
 
+[0.1.0-beta.4]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.2
 [0.1.0-beta.1]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.1
