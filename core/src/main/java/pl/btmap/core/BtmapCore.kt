@@ -35,6 +35,7 @@ import pl.btmap.core.model.SimState
 import pl.btmap.core.radio.Bands
 import pl.btmap.core.model.NetworkSnapshot
 import pl.btmap.core.coverage.CoverageRecorder
+import pl.btmap.core.track.TrackRecorder
 import pl.btmap.core.stations.StationRepository
 import pl.btmap.core.telephony.CellDictionary
 import kotlinx.coroutines.withContext
@@ -106,6 +107,9 @@ class BtmapCore(
 
     /** Crowdsourced coverage measurements, queued for upload. */
     val coverage = CoverageRecorder(File(context.filesDir, "coverage-queue.json"))
+
+    /** Routes travelled with the signal along them; on the phone only. */
+    val track = TrackRecorder(File(context.filesDir, "track.json"))
 
     private val _coverageUploads = MutableStateFlow(0)
     /** Bumped after every successful coverage upload, so the map reloads its tiles. */
@@ -214,6 +218,7 @@ class BtmapCore(
                         resolveStations(snap)
                         resolveNeighbours(snap)
                         if (coverageEnabled) coverage.record(_state.value)
+                        track.record(_state.value)
                         _samples.tryEmit(_state.value)
                     }
                 }
@@ -239,6 +244,7 @@ class BtmapCore(
                     runCatching { log.flush() }
                     runCatching { events.flush() }
                     runCatching { coverage.flush() }
+                    runCatching { track.flush() }
                 }
             },
         )
@@ -270,7 +276,8 @@ class BtmapCore(
         scope.launch(Dispatchers.IO) {
             runCatching { dictionary.flush() }
             runCatching { log.flush() }
-                    runCatching { events.flush() }
+            runCatching { events.flush() }
+            runCatching { track.flush() }
         }
         _state.update { it.copy(running = false) }
     }

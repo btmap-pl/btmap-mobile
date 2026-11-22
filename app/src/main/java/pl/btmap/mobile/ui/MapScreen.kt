@@ -89,6 +89,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import pl.btmap.mobile.i18n.tr
+import pl.btmap.core.model.Rat
+import org.osmdroid.util.BoundingBox
+import pl.btmap.mobile.i18n.Lang
+import pl.btmap.core.track.TrackRecorder
+import pl.btmap.core.track.TrackPoint
 
 private enum class MapMode(private val pl: String, private val en: String) {
     STATIONS("Nadajniki", "Stations"), COVERAGE("Zasięg", "Coverage");
@@ -123,6 +128,26 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
 
     val mapView = remember { createMap(context, colors.isDark) }
     val stationsOverlay = remember { StationsOverlay { site -> selected = site } }
+    val trackOverlay = remember { TrackOverlay(context.resources.displayMetrics.density) }
+
+    // Routes travelled, coloured by the data SIM's signal; 0 = the latest trip.
+    var showTrack by rememberSaveable { mutableStateOf(false) }
+    var tripIndex by rememberSaveable { mutableStateOf(0) }
+    var trips by remember { mutableStateOf<List<List<TrackPoint>>>(emptyList()) }
+    LaunchedEffect(showTrack) {
+        if (!showTrack) { trips = emptyList(); return@LaunchedEffect }
+        var fitted = false
+        while (true) {
+            app.core.track.flush()
+            trips = withContext(Dispatchers.IO) { app.core.track.trips() }
+            val trip = trips.getOrNull(trips.size - 1 - tripIndex)
+            if (!fitted && trip != null) { fitTrip(mapView, trip); fitted = true }
+            delay(15_000)
+        }
+    }
+    val trip = if (showTrack) trips.getOrNull(trips.size - 1 - tripIndex) else null
+    trackOverlay.trip = trip.orEmpty()
+    LaunchedEffect(trip) { mapView.invalidate() }
     var coverageOverlay by remember { mutableStateOf<TilesOverlay?>(null) }
 
     // Coverage filter list: on opening the coverage map, send this phone's queued measurements
@@ -157,6 +182,7 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
     }
 
     DisposableEffect(mapView) {
+        mapView.overlays.add(trackOverlay)
         mapView.overlays.add(stationsOverlay)
         val listener = object : MapListener {
             override fun onScroll(event: ScrollEvent?): Boolean { reloadStations(); return false }
@@ -290,6 +316,19 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
                 }
             }
 
+            if (mode == MapMode.STATIONS) {
+                TrackChip(
+                    shown = showTrack,
+                    trip = trip,
+                    index = tripIndex,
+                    count = trips.size,
+                    onShow = { tripIndex = 0; showTrack = true },
+                    onHide = { showTrack = false },
+                    onOlder = { tripIndex = (tripIndex + 1).coerceAtMost(trips.size - 1); trips.getOrNull(trips.size - 1 - tripIndex)?.let { fitTrip(mapView, it) } },
+                    onNewer = { tripIndex = (tripIndex - 1).coerceAtLeast(0); trips.getOrNull(trips.size - 1 - tripIndex)?.let { fitTrip(mapView, it) } },
+                )
+            }
+
             if (mode == MapMode.STATIONS && zoom < MIN_STATION_ZOOM) {
                 Hint(tr("Przybliż mapę, aby zobaczyć nadajniki", "Zoom in to see stations"))
             } else if (mode == MapMode.STATIONS && loadedSites == 0 && app.core.stations.info(app.core.stations.source.value) == null) {
@@ -322,6 +361,101 @@ fun MapScreen(state: LiveState, apiBase: String, stationUrl: (pl.btmap.core.api.
             exit = slideOutVertically { it } + fadeOut(),
         ) {
             selected?.let { site -> SiteCard(site, state, stationUrl) { selected = null } }
+        }
+    }
+}
+
+/** "Route" pill: shows the latest trip, or the one picked with ‹ ›, coloured by signal. */
+@Composable
+private fun TrackChip(
+    shown: Boolean,
+    trip: List<TrackPoint>?,
+    index: Int,
+    count: Int,
+    onShow: () -> Unit,
+    onHide: () -> Unit,
+    onOlder: () -> Unit,
+    onNewer: () -> Unit,
+) {
+    val colors = Btmap.colors
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        Modifier
+            .shadow(8.dp, shape)
+            .clip(shape)
+            .background(colors.card)
+            .then(if (shown) Modifier else Modifier.clickable(onClick = onShow))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("〰", color = colors.accent, fontWeight = FontWeight.Bold)
+        if (!shown) {
+            Text(tr("Trasa", "Route"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+            return@Row
+        }
+        if (trip == null) {
+            Text(tr("Brak zapisanej trasy", "No route recorded yet"), style = MaterialTheme.typography.labelMedium, color = colors.muted)
+        } else {
+            val km = TrackRecorder.lengthMeters(trip) / 1000.0
+            val time = java.text.SimpleDateFormat("d.MM HH:mm", Lang.locale).format(java.util.Date(trip.first().timeMillis))
+            Column {
+                Text(
+                    if (index == 0) tr("Ta trasa", "This route") else tr("Trasa ${index + 1} wstecz", "Route ${index + 1} back"),
+                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold,
+                )
+                Text("%.1f km · $time".format(Lang.locale, km), style = MaterialTheme.typography.labelSmall, color = colors.muted)
+            }
+            Text("‹", Modifier.clickable(enabled = index < count - 1, onClick = onOlder).padding(horizontal = 6.dp),
+                color = if (index < count - 1) colors.accent else colors.faint, style = MaterialTheme.typography.titleLarge)
+            Text("›", Modifier.clickable(enabled = index > 0, onClick = onNewer).padding(horizontal = 6.dp),
+                color = if (index > 0) colors.accent else colors.faint, style = MaterialTheme.typography.titleLarge)
+        }
+        Text("✕", Modifier.clickable(onClick = onHide).padding(start = 4.dp), color = colors.muted, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+private fun fitTrip(map: MapView, trip: List<TrackPoint>) {
+    val box = BoundingBox.fromGeoPointsSafe(trip.map { GeoPoint(it.lat, it.lng) })
+    map.post { map.zoomToBoundingBox(box.increaseByScale(1.3f), true) }
+}
+
+/** Signal colours along a route: green for a strong signal through red, grey without service. */
+private fun trackColor(p: TrackPoint): Int = when (powerQuality(p.dbm, p.rat ?: Rat.LTE)) {
+    Quality.EXCELLENT -> 0xFF22C55E.toInt()
+    Quality.GOOD -> 0xFF84CC16.toInt()
+    Quality.FAIR -> 0xFFEAB308.toInt()
+    Quality.POOR -> 0xFFF97316.toInt()
+    Quality.BAD -> 0xFFEF4444.toInt()
+    null -> 0xFF64748B.toInt()
+}
+
+/** Draws a trip as a line whose colour follows the signal, over a dark outline. */
+private class TrackOverlay(density: Float) : Overlay() {
+    var trip: List<TrackPoint> = emptyList()
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 5f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+    }
+    private val outline = Paint(line).apply { strokeWidth = 8f * density; color = 0x99000000.toInt() }
+    private val a = android.graphics.Point()
+    private val b = android.graphics.Point()
+
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow || trip.size < 2) return
+        val projection: Projection = mapView.projection
+        val path = android.graphics.Path()
+        projection.toPixels(GeoPoint(trip[0].lat, trip[0].lng), a)
+        path.moveTo(a.x.toFloat(), a.y.toFloat())
+        for (i in 1 until trip.size) {
+            projection.toPixels(GeoPoint(trip[i].lat, trip[i].lng), b)
+            path.lineTo(b.x.toFloat(), b.y.toFloat())
+        }
+        canvas.drawPath(path, outline)
+        for (i in 1 until trip.size) {
+            projection.toPixels(GeoPoint(trip[i - 1].lat, trip[i - 1].lng), a)
+            projection.toPixels(GeoPoint(trip[i].lat, trip[i].lng), b)
+            line.color = trackColor(trip[i])
+            canvas.drawLine(a.x.toFloat(), a.y.toFloat(), b.x.toFloat(), b.y.toFloat(), line)
         }
     }
 }

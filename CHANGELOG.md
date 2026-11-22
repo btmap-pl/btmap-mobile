@@ -4,6 +4,14 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Routes with signal** on the Map tab: the *Route* pill shows the latest trip as a line coloured
+  by the data SIM's signal (green strong → red weak, grey without service), with its length and
+  start time; ‹ › go to earlier trips. Routes are recorded on the phone only; a pause over
+  10 minutes starts a new trip.
+
 ## [0.1.0-beta.5] - 2026-11-22
 
 ### Added
