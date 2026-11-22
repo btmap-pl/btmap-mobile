@@ -4,6 +4,14 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Record modem logs** (root, Qualcomm): Settings → Tools → *Record modem logs (30 s)* switches on
+  the modem's LTE and 5G radio logs (PDSCH MCS/modulation/TBS, CQI/RI, measurements, RRC) through
+  diag_socket_log, records them to a .qmdl file in Downloads with a summary, switches logging off
+  and opens the share sheet.
+
 ## [0.1.0-beta.10] - 2026-11-22
 
 ### Added
