@@ -121,10 +121,25 @@ object DiagCommands {
         return IntArray(16) { b.getInt(12 + it * 4) }
     }
 
-    /** Log code of a DIAG log packet (command 0x10), or null. */
+    /** Multi-SIM wrapper (dual-SIM modems): 0x98, version, 2 reserved, subscription (u32), packet. */
+    const val MULTI_SIM = 0x98
+
+    /** The packet inside a multi-SIM wrapper, or the frame itself. */
+    fun unwrap(frame: ByteArray): ByteArray =
+        if (frame.size > 8 && (frame[0].toInt() and 0xFF) == MULTI_SIM) frame.copyOfRange(8, frame.size) else frame
+
+    /** Log code of a DIAG log packet (command 0x10, possibly in a multi-SIM wrapper), or null. */
     fun logCode(frame: ByteArray): Int? {
-        if (frame.size < 8 || (frame[0].toInt() and 0xFF) != LOG) return null
-        return (frame[6].toInt() and 0xFF) or ((frame[7].toInt() and 0xFF) shl 8)
+        val p = unwrap(frame)
+        if (p.size < 8 || (p[0].toInt() and 0xFF) != LOG) return null
+        return (p[6].toInt() and 0xFF) or ((p[7].toInt() and 0xFF) shl 8)
+    }
+
+    /** Payload of a log packet (after the 16-byte command + log header), or null. */
+    fun logPayload(frame: ByteArray): ByteArray? {
+        val p = unwrap(frame)
+        if (p.size < 17 || (p[0].toInt() and 0xFF) != LOG) return null
+        return p.copyOfRange(16, p.size)
     }
 }
 

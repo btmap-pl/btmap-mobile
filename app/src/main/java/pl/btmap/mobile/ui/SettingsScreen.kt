@@ -115,6 +115,8 @@ import pl.btmap.mobile.i18n.AppLanguage
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.provider.OpenableColumns
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.layout.fillMaxHeight
 
 /** Settings categories, shown as a menu; each opens its own page. */
 private enum class SettingsPage(private val pl: String, private val en: String) {
@@ -125,6 +127,7 @@ private enum class SettingsPage(private val pl: String, private val en: String) 
     DATA("Dane", "Data"),
     BANDS("Wymuszanie pasm", "Band locking"),
     TOOLS("Narzędzia", "Tools"),
+    MODEM("Modem na żywo", "Live modem"),
     ABOUT("O aplikacji", "About");
 
     val title: String get() = tr(pl, en)
@@ -174,9 +177,11 @@ fun SettingsScreen(
                     DatabasePage(settings, onChange, core)
                 } else if (current == SettingsPage.BANDS) {
                     BandsPage(settings) { page = SettingsPage.TOOLS }
+                } else if (current == SettingsPage.MODEM) {
+                    ModemLivePage()
                 } else Card(Modifier.enterAnimation(1)) {
                     when (current) {
-                        SettingsPage.DATABASE, SettingsPage.BANDS -> Unit
+                        SettingsPage.DATABASE, SettingsPage.BANDS, SettingsPage.MODEM -> Unit
                         SettingsPage.APPEARANCE -> AppearancePage(settings, onChange)
                         SettingsPage.MEASUREMENTS -> {
                             ModemAccess(core)
@@ -214,7 +219,8 @@ private fun SettingsMenu(settings: Settings, core: BtmapCore, logSize: Int, onOp
         is ImportState.Running -> tr("${st.source.label} · pobieram…", "${st.source.label} · downloading…")
         else -> settings.database.label + " · " + (dbInfo?.let { tr("${formatCount(it.sites)} stacji", "${formatCount(it.sites)} stations") } ?: tr("nie pobrano", "not downloaded"))
     }
-    val items: List<Triple<SettingsPage, String, @Composable (Color) -> Unit>> = listOf(
+    val rootActive by (LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp).shizuku.rootActive.collectAsStateWithLifecycle()
+    val items: List<Triple<SettingsPage, String, @Composable (Color) -> Unit>> = listOfNotNull(
         Triple(SettingsPage.DATABASE, dbSummary) { c -> DatabaseIcon(c) },
         Triple(SettingsPage.APPEARANCE, tr("Motyw: $theme · język: $language", "Theme: $theme · language: $language")) { c -> ThemeIcon(c) },
         Triple(SettingsPage.MEASUREMENTS, tr("Odświeżanie co ${settings.liveRefreshMs / 1000} s · w tle oszczędnie", "Refresh every ${settings.liveRefreshMs / 1000} s · battery-saving in background")) { c -> LiveIcon(c) },
@@ -222,6 +228,8 @@ private fun SettingsMenu(settings: Settings, core: BtmapCore, logSize: Int, onOp
         Triple(SettingsPage.DATA, tr("$logSize w logu · ${core.dictionary.size} nauczonych", "$logSize in log · ${core.dictionary.size} learned")) { c -> LogIcon(c) },
         Triple(SettingsPage.BANDS, bandsSummary(settings)) { c -> BandLockIcon(c) },
         Triple(SettingsPage.TOOLS, toolsSummary(settings)) { c -> Icon(Icons.Outlined.Build, null, tint = c) },
+        // Reads the modem's own logs (Qualcomm DIAG), which needs root.
+        if (rootActive) Triple<SettingsPage, String, @Composable (Color) -> Unit>(SettingsPage.MODEM, tr("MCS, modulacja, BLER, przepustowość (root)", "MCS, modulation, BLER, throughput (root)")) { c -> LiveIcon(c) } else null,
         Triple(SettingsPage.ABOUT, tr("Wersja ${BuildConfig.VERSION_NAME} · MIT", "Version ${BuildConfig.VERSION_NAME} · MIT")) { c -> Icon(Icons.Outlined.Info, null, tint = c) },
     )
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1805,6 +1813,91 @@ private fun About() {
     }
     Spacer(Modifier.height(10.dp))
     DiagnosticsButton(tr("Zapisz diagnostykę", "Save diagnostics"), primary = false)
+}
+
+/**
+ * Live downlink figures straight from the modem's PDSCH statistics (root, Qualcomm DIAG): the
+ * session runs while this page is open and stops when it is left.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ModemLivePage() {
+    val colors = Btmap.colors
+    DisposableEffect(Unit) {
+        pl.btmap.mobile.tools.DiagLive.start()
+        onDispose { pl.btmap.mobile.tools.DiagLive.stop() }
+    }
+    val state by pl.btmap.mobile.tools.DiagLive.state.collectAsStateWithLifecycle()
+    val running = state as? pl.btmap.mobile.tools.DiagLive.State.Running
+    val stats = running?.stats
+
+    Card(Modifier.enterAnimation(1)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PulseDot(
+                when (state) {
+                    is pl.btmap.mobile.tools.DiagLive.State.Running -> if (stats != null) colors.good else colors.poor
+                    is pl.btmap.mobile.tools.DiagLive.State.Failed -> colors.bad
+                    else -> colors.faint
+                },
+                active = state is pl.btmap.mobile.tools.DiagLive.State.Running,
+            )
+            Text(
+                when (val st = state) {
+                    pl.btmap.mobile.tools.DiagLive.State.Off -> tr("Zatrzymano", "Stopped")
+                    pl.btmap.mobile.tools.DiagLive.State.Connecting -> tr("Łączę z modemem…", "Connecting to the modem…")
+                    is pl.btmap.mobile.tools.DiagLive.State.Failed -> tr("Błąd: ", "Error: ") + st.message
+                    is pl.btmap.mobile.tools.DiagLive.State.Running ->
+                        if (stats == null) tr("Połączono · czekam na dane (pobierz coś, żeby modem nadawał)", "Connected · waiting for data (download something)")
+                        else tr("Na żywo · ${"%.0f".format(stats.blocksPerSecond)} bloków/s", "Live · ${"%.0f".format(stats.blocksPerSecond)} blocks/s")
+                },
+                style = MaterialTheme.typography.bodyMedium, color = colors.muted,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(stats?.let { "%.1f".format(it.mbps) } ?: "—", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+            Text(" Mb/s DL", style = MaterialTheme.typography.titleMedium, color = colors.muted, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatTile("MCS", stats?.let { "%.0f · %d".format(it.mcsAvg, it.mcsLast) } ?: "—", Modifier.weight(1f))
+            StatTile("BLER", stats?.let { "%.1f%%".format(it.bler * 100) } ?: "—", Modifier.weight(1f))
+            StatTile("RB", stats?.let { "%.0f · max %d".format(it.rbsAvg, it.rbsMax) } ?: "—", Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatTile("MIMO 2×2", stats?.let { "%.0f%%".format(it.rank2 * 100) } ?: "—", Modifier.weight(1f))
+            StatTile(tr("Retransmisje", "Retransmissions"), stats?.let { "%.0f%%".format(it.retransmissions * 100) } ?: "—", Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(14.dp))
+        Text(tr("Modulacja", "Modulation"), style = MaterialTheme.typography.labelMedium, color = colors.muted)
+        Spacer(Modifier.height(6.dp))
+        val mods = listOf(2 to "QPSK", 4 to "16QAM", 6 to "64QAM", 8 to "256QAM")
+        val modColors = listOf(colors.bad, colors.poor, colors.fair, colors.good)
+        Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(colors.meterTrack)) {
+            mods.forEachIndexed { i, (q, _) ->
+                val share = stats?.modulation?.get(q) ?: 0.0
+                if (share > 0) Box(Modifier.weight(share.toFloat()).fillMaxHeight().background(modColors[i]))
+            }
+            val rest = 1.0 - (stats?.modulation?.values?.sum() ?: 0.0)
+            if (rest > 0.0001) Box(Modifier.weight(rest.toFloat()).fillMaxHeight())
+        }
+        Spacer(Modifier.height(6.dp))
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            mods.forEachIndexed { i, (q, name) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(modColors[i]))
+                    Text(" $name ${stats?.modulation?.get(q)?.let { "%.0f%%".format(it * 100) } ?: ""}", style = MaterialTheme.typography.labelSmall, color = colors.muted)
+                }
+            }
+        }
+    }
+    Hint(
+        tr(
+            "Dane prosto z logów modemu Qualcomm (DIAG): statystyki PDSCH łącza w dół LTE z ostatniej sekundy. MCS: średni · ostatni. Ekran działa tylko gdy jest otwarty; po wyjściu logowanie w modemie się wyłącza. 5G NR wkrótce.",
+            "Straight from the Qualcomm modem's logs (DIAG): LTE downlink PDSCH statistics over the last second. MCS: average · last. Runs only while open; leaving switches the modem's logging off. 5G NR coming soon.",
+        ),
+    )
 }
 
 /**
