@@ -147,6 +147,7 @@ fun LogDetailScreen(
                     (when (id.rat) { Rat.LTE -> "EARFCN"; Rat.NR -> "NR-ARFCN"; Rat.WCDMA -> "UARFCN"; Rat.GSM -> "ARFCN" }) to id.channel?.toString(),
                     tr("Pasmo", "Band") to id.band?.let { "${it.shortName} · ${it.label} MHz" },
                     "DL" to id.band?.downlinkMhz?.let { "%.1f MHz".format(it) },
+                    "UL" to id.band?.uplinkMhz?.takeIf { it != id.band?.downlinkMhz }?.let { "%.1f MHz".format(it) },
                     tr("Szerokość", "Bandwidth") to id.bandwidthKhz?.let { if (it % 1000 == 0) "${it / 1000} MHz" else "%.1f MHz".format(it / 1000.0) },
                     tr("Rola", "Role") to when (entry.lastRole) { CellRole.PRIMARY -> "PCell"; CellRole.SECONDARY -> "SCell / NR"; CellRole.NEIGHBOUR -> tr("sąsiednia", "neighbour") },
                 ),

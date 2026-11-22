@@ -451,6 +451,7 @@ private fun IdentityGrid(cell: Cell, bandwidth: String? = null) {
         physicalLabel(id.rat) to id.physicalId?.toString(),
         channelLabel(id.rat) to id.channel?.toString(),
         "DL" to id.band?.downlinkMhz?.let { "%.1f MHz".format(it) },
+        "UL" to id.band?.uplinkMhz?.takeIf { it != id.band?.downlinkMhz }?.let { "%.1f MHz".format(it) },
         tr("Pasmo", "Band") to id.band?.let { "${it.shortName} · ${it.label}" },
         "BW" to (bandwidth ?: id.bandwidthKhz?.let { if (it % 1000 == 0) "${it / 1000}" else "%.1f".format(it / 1000.0) })?.let { "$it MHz" },
     ).filter { it.second != null }

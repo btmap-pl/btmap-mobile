@@ -95,4 +95,56 @@ class RadioMathTest {
         assertEquals(78, Bands.nrAt(3610.56, n1)!!.number)
         assertNull(Bands.nrAt(null, n1)?.takeIf { it.number != 1 })
     }
+
+    @Test
+    fun `lte bands outside Poland with uplink`() {
+        // T-Mobile US values from a BTSearch app screenshot.
+        val b12 = Bands.lte(5035)!!
+        assertEquals(12, b12.number)
+        assertEquals("700", b12.label)
+        assertEquals(731.5, b12.downlinkMhz!!, 0.001)
+        assertEquals(701.5, b12.uplinkMhz!!, 0.001)
+        assertEquals(23035, Bands.lteUplinkEarfcn(5035))
+
+        val b66 = Bands.lte(66736)!!
+        assertEquals(66, b66.number)
+        assertEquals(2140.0, b66.downlinkMhz!!, 0.001)
+        assertEquals(1740.0, b66.uplinkMhz!!, 0.001)
+        // Upper part of B66 is downlink-only.
+        assertNull(Bands.lte(67300)!!.uplinkMhz)
+
+        assertEquals(71, Bands.lte(68861)!!.number)
+        assertEquals("600", Bands.lte(68861)!!.label)
+        assertEquals(2, Bands.lte(975)!!.number)
+        assertEquals(1967.5, Bands.lte(975)!!.downlinkMhz!!, 0.001)
+        // Polish B3 keeps its UKE label and gets an uplink.
+        assertEquals(1747.9, Bands.lte(1579)!!.uplinkMhz!!, 0.001)
+        // Downlink-only B32 and TDD B38.
+        assertNull(Bands.lte(10000)!!.uplinkMhz)
+        assertEquals(Bands.lte(38000)!!.downlinkMhz, Bands.lte(38000)!!.uplinkMhz)
+    }
+
+    @Test
+    fun `nr bands outside Poland`() {
+        assertEquals(71, Bands.nr(126000)!!.number) // 630 MHz
+        assertEquals("600", Bands.nr(126000)!!.label)
+        assertEquals(41, Bands.nr(520110, intArrayOf(41))!!.number)
+        assertEquals(79, Bands.nr(720000)!!.number) // 4800 MHz
+        assertEquals(258, Bands.nr(2070000)!!.number) // ~27.4 GHz
+        assertEquals(66, Bands.nr(428000, intArrayOf(66))!!.number) // reported n66 inside 2110–2170
+        // n78 3528.48 MHz is TDD: uplink equals downlink; n28 has a 55 MHz gap.
+        assertEquals(3528.48, Bands.nr(635232)!!.uplinkMhz!!, 0.001)
+        assertEquals(763.45 - 55, Bands.nr(152690)!!.uplinkMhz!!, 0.001)
+    }
+
+    @Test
+    fun `umts and gsm outside Poland`() {
+        assertEquals(2, Bands.umts(9800)!!.number)
+        assertEquals(1960.0, Bands.umts(9800)!!.downlinkMhz!!, 0.001)
+        assertEquals(1880.0, Bands.umts(9800)!!.uplinkMhz!!, 0.001)
+        assertEquals(5, Bands.umts(4400)!!.number)
+        assertEquals(850, Bands.gsm(190)!!.number)
+        assertEquals(881.6, Bands.gsm(190)!!.downlinkMhz!!, 0.001)
+        assertEquals(890.0, Bands.gsm(0)!!.uplinkMhz!!, 0.001)
+    }
 }

@@ -12,6 +12,8 @@ data class Band(
     val number: Int,
     val label: String,
     val downlinkMhz: Double?,
+    /** Uplink centre frequency; null for downlink-only bands or when unknown. */
+    val uplinkMhz: Double? = null,
 ) {
     /** "B3", "n78", "B1" (UMTS), "GSM900". */
     val shortName: String
