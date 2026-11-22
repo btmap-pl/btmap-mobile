@@ -916,6 +916,50 @@ private fun ToolsPage(settings: Settings, onChange: ((Settings) -> Settings) -> 
     )
     Spacer(Modifier.height(10.dp))
     DiagnosticsButton(tr("Sprawdź i wyślij", "Check and send"), primary = true)
+    if (rootActive) {
+        Spacer(Modifier.height(14.dp))
+        Hint(
+            tr(
+                "Nagrywa przez 30 s logi warstwy radiowej modemu (LTE i 5G: MCS, modulacja, CQI, pomiary, RRC) do pliku .qmdl i wyłącza logowanie. Tylko telefony z Qualcommem i rootem.",
+                "Records the modem's radio-layer logs (LTE and 5G: MCS, modulation, CQI, measurements, RRC) for 30 s to a .qmdl file, then switches logging off. Qualcomm phones with root only.",
+            ),
+        )
+        Spacer(Modifier.height(8.dp))
+        ModemCaptureButton()
+    }
+}
+
+/** Records 30 s of modem logs and opens the share sheet with the .qmdl and its summary. */
+@Composable
+private fun ModemCaptureButton() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var second by remember { mutableStateOf<Int?>(null) }
+    var summary by remember { mutableStateOf<String?>(null) }
+    val seconds = 30
+    ActionButton(
+        second?.let { tr("Nagrywam… $it/$seconds s", "Recording… $it/$seconds s") } ?: tr("Nagraj logi modemu (30 s)", "Record modem logs (30 s)"),
+        enabled = second == null,
+    ) {
+        second = 0
+        summary = null
+        scope.launch {
+            val result = runCatching { pl.btmap.mobile.tools.ModemCapture.record(context, seconds) { s -> second = s } }.getOrNull()
+            second = null
+            summary = result?.summary?.lineSequence()?.take(3)?.joinToString("\n") ?: tr("Nie udało się nagrać", "Recording failed")
+            if (result != null && result.files.isNotEmpty()) {
+                val send = Intent(Intent.ACTION_SEND_MULTIPLE)
+                    .setType("*/*")
+                    .putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(result.files))
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                runCatching { context.startActivity(Intent.createChooser(send, tr("Wyślij logi modemu", "Send modem logs"))) }
+            }
+        }
+    }
+    summary?.let {
+        Spacer(Modifier.height(6.dp))
+        Hint(it)
+    }
 }
 
 /** Root (su) as the alternative to Shizuku on rooted phones. */

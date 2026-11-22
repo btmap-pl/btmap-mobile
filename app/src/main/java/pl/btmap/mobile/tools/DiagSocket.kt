@@ -60,6 +60,87 @@ object DiagSocket {
         return out.toString().trim()
     }
 
+    /** What a capture recorded, for the summary next to the .qmdl file. */
+    data class CaptureSummary(
+        val bytes: Long,
+        val frames: Int,
+        val badFrames: Int,
+        val perCode: Map<Int, Int>,
+        val lastItem: Int?,
+        val maskStatus: Int?,
+        val error: String?,
+    )
+
+    /**
+     * Records the modem's LTE / NR5G radio logs for [seconds] into [out] as a raw DIAG stream (the
+     * .qmdl format QXDM, QCSuper and SCAT read): switches on only [DiagLogCodes.NAMES], records,
+     * then switches logging off again and stops the tool. [onSecond] reports progress.
+     */
+    fun capture(seconds: Int, out: java.io.OutputStream, onSecond: (Int) -> Unit = {}): CaptureSummary {
+        val tool = TOOLS.firstOrNull { RootShell.exec("sh", "-c", "[ -x $it ] && echo yes").second.contains("yes") }
+            ?: return CaptureSummary(0, 0, 0, emptyMap(), null, null, "brak diag_socket_log")
+        val decoder = pl.btmap.core.diag.Hdlc.Decoder()
+        val perCode = HashMap<Int, Int>()
+        var frames = 0
+        var bytes = 0L
+        var ranges: IntArray? = null
+        var maskStatus: Int? = null
+        var error: String? = null
+        try {
+            ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { server ->
+                server.soTimeout = 10_000
+                RootShell.exec("sh", "-c", "$tool -k >/dev/null 2>&1; (nohup $tool -a 127.0.0.1 -p ${server.localPort} -r 3 >$LOG 2>&1 &)")
+                server.accept().use { s ->
+                    s.soTimeout = 300
+                    val input = s.getInputStream()
+                    val output = s.getOutputStream()
+                    val buf = ByteArray(16_384)
+                    fun pump(millis: Long, tick: Boolean = false) {
+                        val start = System.currentTimeMillis()
+                        var lastSecond = -1
+                        while (System.currentTimeMillis() - start < millis) {
+                            val n = try { input.read(buf) } catch (_: SocketTimeoutException) { 0 }
+                            if (n < 0) break
+                            if (n > 0) {
+                                out.write(buf, 0, n)
+                                bytes += n
+                                decoder.feed(buf, n) { f ->
+                                    frames++
+                                    pl.btmap.core.diag.DiagCommands.logCode(f)?.let { perCode[it] = (perCode[it] ?: 0) + 1 }
+                                    if ((f[0].toInt() and 0xFF) == pl.btmap.core.diag.DiagCommands.LOG_CONFIG && f.size >= 12) {
+                                        pl.btmap.core.diag.DiagCommands.parseIdRanges(f)?.let { ranges = it }
+                                        val op = java.nio.ByteBuffer.wrap(f).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(4)
+                                        if (op == 3) maskStatus = java.nio.ByteBuffer.wrap(f).order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt(8)
+                                    }
+                                }
+                            }
+                            if (tick) {
+                                val sec = ((System.currentTimeMillis() - start) / 1000).toInt()
+                                if (sec != lastSecond) { lastSecond = sec; onSecond(sec) }
+                            }
+                        }
+                    }
+                    fun send(cmd: ByteArray) = output.apply { write(pl.btmap.core.diag.Hdlc.encode(cmd)); flush() }
+                    try {
+                        send(pl.btmap.core.diag.DiagCommands.retrieveIdRanges)
+                        pump(3_000)
+                        val last = ranges?.getOrNull(pl.btmap.core.diag.DiagCommands.EQUIP_LTE_NR)?.takeIf { it > 0 } ?: 0xFFF
+                        send(pl.btmap.core.diag.DiagCommands.setMask(pl.btmap.core.diag.DiagCommands.EQUIP_LTE_NR, last, pl.btmap.core.diag.DiagLogCodes.NAMES.keys))
+                        pump(seconds * 1_000L, tick = true)
+                    } finally {
+                        // Logging off again, whatever happened.
+                        runCatching { send(pl.btmap.core.diag.DiagCommands.disableAll); pump(1_500) }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            error = "${e.javaClass.simpleName}: ${e.message}"
+        } finally {
+            RootShell.exec("sh", "-c", "$tool -k >/dev/null 2>&1; pkill -f diag_socket_log; rm -f $LOG")
+        }
+        return CaptureSummary(bytes, frames, decoder.badFrames, perCode, ranges?.getOrNull(pl.btmap.core.diag.DiagCommands.EQUIP_LTE_NR), maskStatus, error)
+    }
+
     /** Collects whatever arrives within [millis]. */
     fun readFor(input: java.io.InputStream, millis: Long): ByteArray {
         val buf = ByteArray(4096)
