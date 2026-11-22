@@ -4,7 +4,7 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0-beta.11] - 2026-11-22
 
 ### Added
 - **Record modem logs** (root, Qualcomm): Settings → Tools → *Record modem logs (30 s)* switches on
@@ -149,6 +149,7 @@ The first public beta.
   BTMap station source are not available to testers until the API is publicly deployed.
 - Band locking targets MediaTek modems.
 
+[0.1.0-beta.11]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.11
 [0.1.0-beta.10]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.10
 [0.1.0-beta.9]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.9
 [0.1.0-beta.8]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.8
