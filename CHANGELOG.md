@@ -4,7 +4,7 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0-beta.14] - 2026-11-22
 
 ### Fixed
 - **Live modem screen showed no data** on the Galaxy S25: the modem answers seconds late and drops
@@ -180,6 +180,7 @@ The first public beta.
   BTMap station source are not available to testers until the API is publicly deployed.
 - Band locking targets MediaTek modems.
 
+[0.1.0-beta.14]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.13
 [0.1.0-beta.12]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.12
 [0.1.0-beta.11]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.11
