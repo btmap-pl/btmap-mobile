@@ -92,7 +92,6 @@ fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item { LocationStrip(state) }
         if (sims.isEmpty()) {
             item {
                 Text(
@@ -103,28 +102,6 @@ fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding
         }
         itemsIndexed(sims, key = { _, sim -> sim.subscriptionId }) { index, sim ->
             SimCard(sim, state, stationUrl, showNeighbours, Modifier.animateItemPlacement().enterAnimation(index + 1))
-        }
-    }
-}
-
-@Composable
-private fun LocationStrip(state: LiveState) {
-    val fix = state.fix
-    Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-        PulseDot(if (fix != null) Btmap.colors.good else Btmap.colors.faint, active = fix == null)
-        Spacer(Modifier.width(4.dp))
-        Text(
-            if (fix == null) tr("Szukam lokalizacji…", "Looking for location…")
-            else buildString {
-                append("%.5f°  %.5f°".format(java.util.Locale.ROOT, fix.lat, fix.lng))
-                fix.accuracyMeters?.let { append("  ±${it.toInt()} m") }
-                fix.speedKmh?.takeIf { it >= 1f }?.let { append("  ${it.toInt()} km/h") }
-            },
-            style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
-        )
-        state.apiError?.let {
-            Spacer(Modifier.weight(1f))
-            Text("BTMap offline", style = MaterialTheme.typography.labelSmall, color = Btmap.colors.poor)
         }
     }
 }

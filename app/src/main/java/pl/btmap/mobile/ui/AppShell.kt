@@ -3,6 +3,8 @@ package pl.btmap.mobile.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -95,10 +97,17 @@ fun AppShell(
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
-            TopBar(
-                title = if (detailKey != null) tr("Szczegóły", "Details") else tab.title,
-                running = state.running,
-            )
+            // The Live screen starts straight with the SIM cards: no title bar.
+            AnimatedVisibility(
+                visible = detailKey != null || tab != Tab.LIVE,
+                enter = expandVertically(tween(260)) + fadeIn(tween(260)),
+                exit = shrinkVertically(tween(220)) + fadeOut(tween(160)),
+            ) {
+                TopBar(
+                    title = if (detailKey != null) tr("Szczegóły", "Details") else tab.title,
+                    running = state.running,
+                )
+            }
             AnimatedContent(
                 targetState = screen,
                 transitionSpec = {
@@ -126,7 +135,7 @@ fun AppShell(
             ) { target ->
                 when (target) {
                     is Screen.TabScreen -> when (target.tab) {
-                        Tab.LIVE -> LiveScreen(state, stationUrl, tabPadding, settings.showNeighbours)
+                        Tab.LIVE -> LiveScreen(state, stationUrl, PaddingValues(top = 12.dp, bottom = tabPadding.calculateBottomPadding()), settings.showNeighbours)
                         Tab.MAP -> MapScreen(state, settings.apiBaseUrl, stationUrl, tabPadding)
                         Tab.SETTINGS -> SettingsScreen(settings, onSettingsChange, core, log.size, tabPadding)
                         Tab.LOG -> {
