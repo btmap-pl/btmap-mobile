@@ -7,6 +7,9 @@ All notable changes to BTMap Mobile are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Import your own NetMonster database (.ntm)** in Settings → Database → Own database. It works
+  in any country, and its stations take priority over the downloaded database. Rows without
+  coordinates are skipped.
 - **Bands worldwide.** Full 3GPP band tables for LTE (B1–B88), 5G NR (FR1 and FR2), UMTS and
   GSM 850, so bands are right abroad and in roaming, not only in Poland. Bands outside the
   UKE labels get their common name, e.g. "700 B12" or "600 n71".

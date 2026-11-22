@@ -111,6 +111,9 @@ import java.util.Locale
 import pl.btmap.mobile.i18n.tr
 import pl.btmap.mobile.i18n.translateMessage
 import pl.btmap.mobile.i18n.AppLanguage
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.provider.OpenableColumns
 
 /** Settings categories, shown as a menu; each opens its own page. */
 private enum class SettingsPage(private val pl: String, private val en: String) {
@@ -442,6 +445,10 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
             }
         }
 
+        // ---- Own NetMonster file ----
+        SectionLabel(tr("Własna baza", "Own database"), 4)
+        CustomDatabaseCard(core, Modifier.enterAnimation(4))
+
         // ---- Schedule ----
         SectionLabel(tr("Aktualizacja", "Updates"), 4)
         Card(Modifier.enterAnimation(4)) {
@@ -474,6 +481,107 @@ private fun DatabasePage(settings: Settings, onChange: ((Settings) -> Settings) 
                 TextButton(onClick = {
                     confirmDelete = false
                     core.stations.clear(settings.database)
+                }) { Text(tr("Usuń", "Delete"), color = Btmap.colors.bad) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Anuluj", "Cancel")) } },
+            containerColor = Btmap.colors.card,
+        )
+    }
+}
+
+/**
+ * The user's own NetMonster `.ntm` file: imported from storage, looked up before the downloaded
+ * database, so stations are named in any country.
+ */
+@Composable
+private fun CustomDatabaseCard(core: BtmapCore, modifier: Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val version by core.stations.version.collectAsStateWithLifecycle()
+    val info = remember(version) { core.stations.info(StationSource.CUSTOM) }
+    var importing by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val name = runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull() ?: "plik.ntm"
+        importing = true
+        result = null
+        scope.launch {
+            val outcome = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { core.stations.importNtm(it, name).getOrThrow() }
+                    ?: throw java.io.IOException(tr("Nie można otworzyć pliku", "Cannot open the file"))
+            }
+            importing = false
+            result = outcome.fold(
+                onSuccess = { r ->
+                    true to tr(
+                        "Wczytano ${formatCount(r.info.sites)} stacji i ${formatCount(r.info.cells)} komórek" +
+                            if (r.skipped > 0) " · pominięto ${formatCount(r.skipped)} bez lokalizacji" else "",
+                        "Imported ${formatCount(r.info.sites)} stations and ${formatCount(r.info.cells)} cells" +
+                            if (r.skipped > 0) " · skipped ${formatCount(r.skipped)} without a location" else "",
+                    )
+                },
+                onFailure = { e -> false to translateMessage(e.message ?: e.javaClass.simpleName) },
+            )
+        }
+    }
+
+    Card(modifier) {
+        Text(
+            info?.detail ?: tr("Plik .ntm z NetMonstera", "NetMonster .ntm file"),
+            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+        )
+        Text(
+            when {
+                importing -> tr("Wczytuję…", "Importing…")
+                info != null -> tr(
+                    "${formatCount(info.sites)} stacji · ${formatCount(info.cells)} komórek · ${relativeTime(info.updatedAtMillis)}",
+                    "${formatCount(info.sites)} stations · ${formatCount(info.cells)} cells · ${relativeTime(info.updatedAtMillis)}",
+                )
+                else -> tr("Nie wczytano", "Not imported")
+            },
+            style = MaterialTheme.typography.bodySmall, color = Btmap.colors.muted,
+        )
+        result?.let { (ok, text) ->
+            Spacer(Modifier.height(6.dp))
+            Text(text, style = MaterialTheme.typography.bodySmall, color = if (ok) Btmap.colors.good else Btmap.colors.bad)
+        }
+        Spacer(Modifier.height(12.dp))
+        WideButton(
+            if (info == null) tr("Wczytaj plik .ntm", "Import .ntm file") else tr("Wczytaj inny plik", "Import another file"),
+            primary = info == null,
+        ) { if (!importing) picker.launch(arrayOf("*/*")) }
+        if (info != null && !importing) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                TextButton(onClick = { confirmDelete = true }) {
+                    Text(tr("Usuń własną bazę", "Delete own database"), color = Btmap.colors.bad, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+    }
+    Hint(
+        tr(
+            "Wyeksportuj bazę w NetMonsterze (format .ntm) i wczytaj ją tutaj. Działa w każdym kraju; stacje z tego pliku mają pierwszeństwo przed pobraną bazą.",
+            "Export your database in NetMonster (.ntm format) and import it here. Works in any country; stations from this file take priority over the downloaded database.",
+        ),
+    )
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(tr("Usunąć własną bazę?", "Delete own database?")) },
+            text = { Text(tr("Plik w telefonie się nie zmieni — możesz go wczytać ponownie.", "The file on your phone is not touched — you can import it again.")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    result = null
+                    core.stations.clear(StationSource.CUSTOM)
                 }) { Text(tr("Usuń", "Delete"), color = Btmap.colors.bad) }
             },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(tr("Anuluj", "Cancel")) } },

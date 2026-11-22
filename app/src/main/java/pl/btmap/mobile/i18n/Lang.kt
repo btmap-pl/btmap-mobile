@@ -61,6 +61,8 @@ fun translateMessage(message: String): String {
         message == "Brak połączenia" -> "No connection"
         message == "Nie wybrano operatorów" -> "No operators selected"
         message == "Brak danych" -> "No data"
+        message == "Brak komórek z lokalizacją w pliku" -> "No cells with a location in the file"
+        message == "Własną bazę wczytuje się z pliku" -> "The own database is imported from a file"
         message.startsWith("Brak uprawnień: ") -> "Missing permission: " + message.removePrefix("Brak uprawnień: ")
         message.startsWith("Modem: błąd ") -> "Modem: error " + message.removePrefix("Modem: błąd ")
         else -> message

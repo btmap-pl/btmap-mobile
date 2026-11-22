@@ -85,6 +85,7 @@ class BtmapApp : Application() {
                     when (source) {
                         StationSource.BTMAP -> core.stations.info(source) == null
                         StationSource.BTSEARCH -> core.stations.staleOperators(source, s.btsearchMncs, DatabaseWorker.maxAgeMs(s)).isNotEmpty()
+                        StationSource.CUSTOM -> false
                     }
                 }
                 if (needed) DatabaseWorker.runNow(this@BtmapApp, s)

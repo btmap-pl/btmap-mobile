@@ -13,6 +13,8 @@ enum class StationSource(val id: Int, val label: String) {
     BTMAP(1, "BTMap"),
     /** btsearch.pl export (NetMonster format). */
     BTSEARCH(2, "BTSearch"),
+    /** The user's own NetMonster `.ntm` file; looked up before the downloaded database, in any country. */
+    CUSTOM(3, "NTM"),
 }
 
 data class SourceInfo(val updatedAtMillis: Long, val sites: Int, val cells: Int, val detail: String?)

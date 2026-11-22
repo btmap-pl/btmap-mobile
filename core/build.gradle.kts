@@ -10,6 +10,7 @@ android {
     defaultConfig {
         minSdk = 31
         consumerProguardFiles("consumer-rules.pro")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -26,4 +27,7 @@ dependencies {
     // Real JSON in JVM tests (the Android stub returns nulls).
     testImplementation(libs.org.json)
     testImplementation(libs.kotlinx.coroutines.test)
+    // On-device tests for the SQLite station database.
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.junit)
 }

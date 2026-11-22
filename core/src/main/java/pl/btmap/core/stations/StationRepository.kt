@@ -20,6 +20,7 @@ import pl.btmap.core.model.Rat
 import pl.btmap.core.radio.Bands
 import pl.btmap.core.radio.Operators
 import java.util.Locale
+import java.io.InputStream
 
 /** Download state of one operator (BTSearch). */
 data class OperatorProgress(
@@ -80,17 +81,23 @@ class StationRepository(context: Context) {
 
     /** Neighbour cell (reported without a cell id) on [channel]/[pci], nearest to the phone. Off the main thread. */
     fun findNeighbour(plmn: Plmn, rat: Rat, channel: Int, pci: Int, lat: Double, lng: Double): NeighbourMatch? {
-        val source = _source.value
-        val m = runCatching {
-            db.findByPhysical(source, plmn.mcc.toInt(), plmn.mnc.toInt(), rat, channel, pci, lat, lng)
-        }.getOrNull() ?: return null
-        val key = NodeKey(plmn, rat, m.node ?: -1)
-        return NeighbourMatch(toStation(source, key, m.site), m.node, m.cid, m.area)
+        for (source in lookupOrder()) {
+            val m = runCatching {
+                db.findByPhysical(source, plmn.mcc.toInt(), plmn.mnc.toInt(), rat, channel, pci, lat, lng)
+            }.getOrNull() ?: continue
+            val key = NodeKey(plmn, rat, m.node ?: -1)
+            return NeighbourMatch(toStation(source, key, m.site), m.node, m.cid, m.area)
+        }
+        return null
     }
 
+    /** The user's own file first (it is what they trust for their area), then the selected database. */
+    private fun lookupOrder(): List<StationSource> = listOf(StationSource.CUSTOM, _source.value).distinct()
+
     /** Station of a node in the selected database, or null. Call off the main thread. */
-    fun find(key: NodeKey): Station? {
-        val source = _source.value
+    fun find(key: NodeKey): Station? = lookupOrder().firstNotNullOfOrNull { find(it, key) }
+
+    private fun find(source: StationSource, key: NodeKey): Station? {
         val mcc = key.plmn.mcc.toInt()
         val mnc = key.plmn.mnc.toInt()
         val site = runCatching {
@@ -135,6 +142,7 @@ class StationRepository(context: Context) {
             // BTMap stations open on btmap.pl, BTSearch ones on their station page.
             url = when (source) {
                 StationSource.BTMAP -> null
+                StationSource.CUSTOM -> geo
                 StationSource.BTSEARCH -> site.externalId?.removePrefix("btsearch:")?.let { "https://btsearch.pl/stations/$it" } ?: geo
             },
         )
@@ -165,6 +173,7 @@ class StationRepository(context: Context) {
                             db.replace(source, null) { writer -> BtmapImporter.import(writer, apiBase, progress, cancelled) }
                         }
                         StationSource.BTSEARCH -> downloadBtsearch(btsearchMncs, preferredMncs, maxAgeMs, cancelled)
+                        StationSource.CUSTOM -> throw ImportException("Własną bazę wczytuje się z pliku")
                     }
                 }
                 result.onSuccess {
@@ -262,7 +271,38 @@ class StationRepository(context: Context) {
 
     /** Sites of the selected database in a box, for the map. Off the main thread. */
     fun sitesIn(south: Double, west: Double, north: Double, east: Double): List<StationDb.MapSite> =
-        runCatching { db.sitesIn(_source.value, south, west, north, east) }.getOrDefault(emptyList())
+        lookupOrder().flatMap { source -> runCatching { db.sitesIn(source, south, west, north, east) }.getOrDefault(emptyList()) }
+
+    /** What an `.ntm` import read: cells saved and rows skipped (no coordinates or not a cell). */
+    data class NtmImport(val info: SourceInfo, val skipped: Int)
+
+    /**
+     * Replaces the user's own database with a NetMonster `.ntm` file ([name] is kept to show
+     * where it came from). Rows without coordinates are skipped: a station needs a place.
+     */
+    suspend fun importNtm(input: InputStream, name: String): Result<NtmImport> =
+        importLock.withLock {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    var skipped = 0
+                    val info = db.replace(StationSource.CUSTOM, name) { writer ->
+                        input.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                            lines.forEach { raw ->
+                                val line = raw.trimEnd('\r').removePrefix("\uFEFF")
+                                if (line.isBlank()) return@forEach
+                                val cell = NtmParser.parse(line)
+                                if (cell == null) skipped++ else writer.add(cell)
+                            }
+                        }
+                    }
+                    if (info.cells == 0) {
+                        db.clear(StationSource.CUSTOM)
+                        throw ImportException("Brak komórek z lokalizacją w pliku")
+                    }
+                    NtmImport(info, skipped)
+                }.also { _version.update { it + 1 } }
+            }
+        }
 
     /** Cells per operator in [source], for the settings screen. */
     fun cellsPerOperator(source: StationSource): Map<Int, Int> = runCatching { db.cellsPerOperator(source) }.getOrDefault(emptyMap())
