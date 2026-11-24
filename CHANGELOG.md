@@ -7,7 +7,7 @@ All notable changes to BTMap Mobile are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- **Export for BTSearch / NetMonster (.ntm)** in Settings → Data: the cell log as a NetMonster
+- **Export** in Settings → Data now writes the cell log as a NetMonster (.ntm)
   cell file, which BTSearch's log analyzer and NetMonster read. BTSearch rejected the CSV export
   because it reads every .csv as a Netmonitor file.
 - **Modem card on the Live screen** (root, Qualcomm): Mb/s, MCS, BLER, MIMO rank, RBs and the

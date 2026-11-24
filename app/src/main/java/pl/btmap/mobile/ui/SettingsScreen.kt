@@ -1774,7 +1774,7 @@ private fun DataSettings(core: BtmapCore, logSize: Int) {
             context.startActivity(Intent.createChooser(send, tr("Eksportuj log", "Export log")))
         }
     }
-    WideButton(tr("Eksportuj dla BTSearch / NetMonster (.ntm)", "Export for BTSearch / NetMonster (.ntm)"), primary = true) {
+    WideButton(tr("Eksportuj", "Export"), primary = true) {
         if (logSize > 0) export("ntm", "application/octet-stream") { core.log.toNtm() }
     }
     Spacer(Modifier.height(8.dp))
