@@ -85,7 +85,7 @@ import pl.btmap.mobile.i18n.translateMessage
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding: PaddingValues, showNeighbours: Boolean = true) {
+fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding: PaddingValues, showNeighbours: Boolean = true, showModem: Boolean = false) {
     val sims = state.snapshot.sims
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -102,6 +102,10 @@ fun LiveScreen(state: LiveState, stationUrl: (Station) -> String, contentPadding
         }
         itemsIndexed(sims, key = { _, sim -> sim.subscriptionId }) { index, sim ->
             SimCard(sim, state, stationUrl, showNeighbours, Modifier.animateItemPlacement().enterAnimation(index + 1))
+        }
+        // Modem figures (root): what the data SIM's downlink is doing right now.
+        if (showModem && sims.isNotEmpty()) {
+            item(key = "modem") { ModemCard(Modifier.animateItemPlacement().enterAnimation(sims.size + 1)) }
         }
     }
 }

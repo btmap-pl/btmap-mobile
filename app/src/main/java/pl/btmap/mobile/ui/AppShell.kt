@@ -135,7 +135,13 @@ fun AppShell(
             ) { target ->
                 when (target) {
                     is Screen.TabScreen -> when (target.tab) {
-                        Tab.LIVE -> LiveScreen(state, stationUrl, PaddingValues(top = 12.dp, bottom = tabPadding.calculateBottomPadding()), settings.showNeighbours)
+                        Tab.LIVE -> {
+                            val rootActive by (androidx.compose.ui.platform.LocalContext.current.applicationContext as pl.btmap.mobile.BtmapApp).shizuku.rootActive.collectAsStateWithLifecycle()
+                            LiveScreen(
+                                state, stationUrl, PaddingValues(top = 12.dp, bottom = tabPadding.calculateBottomPadding()), settings.showNeighbours,
+                                showModem = rootActive && settings.modemOnLive,
+                            )
+                        }
                         Tab.MAP -> MapScreen(state, settings.apiBaseUrl, stationUrl, tabPadding)
                         Tab.SETTINGS -> SettingsScreen(settings, onSettingsChange, core, log.size, tabPadding)
                         Tab.LOG -> {

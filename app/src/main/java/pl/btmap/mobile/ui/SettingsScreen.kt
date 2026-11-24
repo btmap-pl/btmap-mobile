@@ -178,7 +178,7 @@ fun SettingsScreen(
                 } else if (current == SettingsPage.BANDS) {
                     BandsPage(settings) { page = SettingsPage.TOOLS }
                 } else if (current == SettingsPage.MODEM) {
-                    ModemLivePage()
+                    ModemLivePage(settings, onChange)
                 } else Card(Modifier.enterAnimation(1)) {
                     when (current) {
                         SettingsPage.DATABASE, SettingsPage.BANDS, SettingsPage.MODEM -> Unit
@@ -1821,7 +1821,7 @@ private fun About() {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ModemLivePage() {
+private fun ModemLivePage(settings: Settings, onChange: ((Settings) -> Settings) -> Unit) {
     val colors = Btmap.colors
     DisposableEffect(Unit) {
         pl.btmap.mobile.tools.DiagLive.start()
@@ -1874,8 +1874,16 @@ private fun ModemLivePage() {
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatTile("MIMO 2×2", stats?.let { "%.0f%%".format(it.rank2 * 100) } ?: "—", Modifier.weight(1f))
+            // Spatial layers per block = MIMO rank (up to 4 with 4×4 MIMO).
+            StatTile(tr("Warstwy (rank)", "Layers (rank)"), stats?.let { "%.1f · max %d".format(it.layersAvg, it.layersMax) } ?: "—", Modifier.weight(1f))
             StatTile(tr("Retransmisje", "Retransmissions"), stats?.let { "%.0f%%".format(it.retransmissions * 100) } ?: "—", Modifier.weight(1f))
+        }
+        stats?.let { st ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Rank " + (1..4).filter { (st.layers[it] ?: 0.0) > 0 }.joinToString("  ") { "$it: ${"%.0f".format((st.layers[it] ?: 0.0) * 100)}%" },
+                style = MaterialTheme.typography.labelSmall, color = colors.muted,
+            )
         }
         Spacer(Modifier.height(14.dp))
         Text(tr("Modulacja", "Modulation"), style = MaterialTheme.typography.labelMedium, color = colors.muted)
@@ -1899,6 +1907,13 @@ private fun ModemLivePage() {
                 }
             }
         }
+    }
+    Card(Modifier.enterAnimation(2)) {
+        ToggleRow(
+            tr("Pokazuj na ekranie Live", "Show on the Live screen"),
+            tr("Karta z Mb/s, MCS, BLER, rank i modulacją pod kartami SIM", "A card with Mb/s, MCS, BLER, rank and modulation below the SIM cards"),
+            settings.modemOnLive,
+        ) { on -> onChange { it.copy(modemOnLive = on) } }
     }
     Hint(
         tr(

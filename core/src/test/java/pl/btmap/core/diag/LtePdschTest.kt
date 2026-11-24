@@ -46,6 +46,8 @@ class LtePdschTest {
         assertTrue(s.mbps > 0)
         assertTrue(s.bler in 0.0..1.0)
         assertEquals(1.0, s.modulation.values.sum(), 1e-9)
+        assertEquals(1.0, s.layers.values.sum(), 1e-9)
+        assertTrue(s.layersMax in 1..4)
         assertEquals(null, window.stats(now = 5_000))
     }
 }

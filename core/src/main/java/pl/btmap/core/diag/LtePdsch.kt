@@ -76,8 +76,11 @@ data class DownlinkStats(
     val rbsMax: Int,
     /** Share of blocks per modulation: 2, 4, 6, 8 bits per symbol. */
     val modulation: Map<Int, Double>,
-    /** Share of subframes with two layers (MIMO rank 2). */
-    val rank2: Double,
+    /** Average number of spatial layers (MIMO rank) per block, and the highest seen. */
+    val layersAvg: Double,
+    val layersMax: Int,
+    /** Share of blocks per rank: 1–4 layers. */
+    val layers: Map<Int, Double>,
     val retransmissions: Double,
     val blocksPerSecond: Double,
 )
@@ -109,7 +112,9 @@ class DownlinkWindow(private val windowMs: Long = 1_000) {
             rbsAvg = blocks.map { it.rbs }.average(),
             rbsMax = blocks.maxOf { it.rbs },
             modulation = listOf(2, 4, 6, 8).associateWith { (mods[it] ?: 0).toDouble() / blocks.size },
-            rank2 = blocks.count { it.layers >= 2 }.toDouble() / blocks.size,
+            layersAvg = blocks.map { it.layers }.average(),
+            layersMax = blocks.maxOf { it.layers },
+            layers = (1..4).associateWith { n -> blocks.count { it.layers == n }.toDouble() / blocks.size },
             retransmissions = blocks.count { it.rv != 0 }.toDouble() / blocks.size,
             blocksPerSecond = blocks.size / seconds,
         )

@@ -4,6 +4,17 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Modem card on the Live screen** (root, Qualcomm): Mb/s, MCS, BLER, MIMO rank, RBs and the
+  modulation mix below the SIM cards, refreshed twice a second. It can be switched off in
+  Settings → Live modem → *Show on the Live screen*.
+
+### Fixed
+- The live modem screen called the MIMO figure "2×2"; it now shows the MIMO rank (spatial
+  layers): average, highest and the share of rank 1–4, so 4×4 MIMO shows up correctly.
+
 ## [0.1.0-beta.14] - 2026-11-22
 
 ### Fixed

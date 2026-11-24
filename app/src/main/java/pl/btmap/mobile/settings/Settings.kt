@@ -37,6 +37,8 @@ data class Settings(
     val shizukuEnabled: Boolean = false,
     /** Use root (su) instead of Shizuku for modem access on rooted phones. */
     val rootEnabled: Boolean = false,
+    /** With root: modem figures (MCS, BLER, Mb/s) as a card on the Live screen. */
+    val modemOnLive: Boolean = true,
     /** Sharing coverage measurements: null = not asked yet. */
     val coverageConsent: Boolean? = null,
 ) {
@@ -90,6 +92,7 @@ class SettingsStore(context: Context) {
             dbWifiOnly = prefs.getBoolean("dbWifiOnly", d.dbWifiOnly),
             shizukuEnabled = prefs.getBoolean("shizukuEnabled", d.shizukuEnabled),
             rootEnabled = prefs.getBoolean("rootEnabled", d.rootEnabled),
+            modemOnLive = prefs.getBoolean("modemOnLive", d.modemOnLive),
             coverageConsent = if (prefs.contains("coverageConsent")) prefs.getBoolean("coverageConsent", false) else null,
         )
     }
@@ -110,6 +113,7 @@ class SettingsStore(context: Context) {
             .putBoolean("dbWifiOnly", s.dbWifiOnly)
             .putBoolean("shizukuEnabled", s.shizukuEnabled)
             .putBoolean("rootEnabled", s.rootEnabled)
+            .putBoolean("modemOnLive", s.modemOnLive)
             .apply { if (s.coverageConsent == null) remove("coverageConsent") else putBoolean("coverageConsent", s.coverageConsent) }
             .apply()
     }

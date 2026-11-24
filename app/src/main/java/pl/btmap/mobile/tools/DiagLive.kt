@@ -57,8 +57,12 @@ object DiagLive {
     val state: StateFlow<State> = _state.asStateFlow()
     private var job: Job? = null
 
+    private var holders = 0
+
+    /** Called by each screen that shows modem data; the session runs while at least one holds it. */
     @Synchronized
     fun start() {
+        holders++
         if (job?.isActive == true) return
         _state.value = State.Connecting(Stage.STARTING)
         job = scope.launch { run() }
@@ -66,6 +70,8 @@ object DiagLive {
 
     @Synchronized
     fun stop() {
+        holders = (holders - 1).coerceAtLeast(0)
+        if (holders > 0) return
         job?.cancel()
         job = null
     }
