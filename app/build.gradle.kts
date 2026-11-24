@@ -17,8 +17,8 @@ android {
         applicationId = "pl.btmap.mobile"
         minSdk = 31
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.1.0-beta.14"
+        versionCode = 16
+        versionName = "0.1.0-beta.15"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
