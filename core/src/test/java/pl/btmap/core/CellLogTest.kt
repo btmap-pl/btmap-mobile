@@ -82,4 +82,31 @@ class CellLogTest {
         assertEquals(1, e.samples)
         assertEquals(1_000, e.lastSeenMillis)
     }
+
+    @Test
+    fun `ntm export follows the format btsearch and netmonster read`() {
+        val log = CellLog()
+        val lte = cell(364, 1355, 15087L * 256 + 2, CellRole.PRIMARY, -110).let {
+            it.copy(identity = it.identity.copy(areaCode = 11018))
+        }
+        val nr = Cell(
+            identity = CellIdentity(Rat.NR, plus, 947003622L, 231203L, 230, 62, 278, 643296, null),
+            signal = CellSignal(ssRsrp = -95), role = CellRole.SECONDARY, taDistanceMeters = null, timestampNanos = 0,
+        )
+        val umts = Cell(
+            identity = CellIdentity(Rat.WCDMA, plus, 3100L * 65536 + 64181, 3100L, 64181, 42003, 211, 10737, null),
+            signal = CellSignal(rscp = -90), role = CellRole.PRIMARY, taDistanceMeters = null, timestampNanos = 0,
+        )
+        log.record(snapshot(1_000, lte, nr), null)
+        log.record(snapshot(2_000, umts), null)
+        val lines = log.toNtm().trim().lines()
+        assertEquals(3, lines.size)
+        val byRat = lines.associateBy { it.substringBefore(';') }
+        // RAT;MCC;MNC;CID;TAC;NODE;PCI;LAT;LON;DESCRIPTION;CHANNEL
+        assertEquals("4G;260;01;2;11018;15087;364;;;BTMap;1355", byRat["4G"])
+        assertEquals("5G;260;01;947003622;62;231203;278;;;BTMap;643296", byRat["5G"])
+        assertEquals("3G;260;01;64181;42003;3100;211;;;BTMap;10737", byRat["3G"])
+        // Our own .ntm reader takes it back.
+        lines.forEach { assertEquals(11, it.split(';').size) }
+    }
 }

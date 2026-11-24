@@ -1758,21 +1758,29 @@ private fun DataSettings(core: BtmapCore, logSize: Int) {
     StatRow(tr("Nauczone komórki", "Learned cells"), learned.toString())
     Hint(tr("Nauczone komórki pozwalają rozpoznać pasma w agregacji i podpisać sąsiednie komórki numerem eNB.", "Learned cells make it possible to recognise aggregation bands and label neighbour cells with their eNB."))
     Spacer(Modifier.height(12.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ActionButton(tr("Eksportuj CSV", "Export CSV"), enabled = logSize > 0, primary = true) {
-            scope.launch {
-                val file = withContext(Dispatchers.IO) {
-                    val dir = File(context.cacheDir, "exports").apply { mkdirs() }
-                    val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.ROOT).format(Date())
-                    File(dir, "btmap-log-$stamp.csv").apply { writeText(core.log.toCsv()) }
-                }
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-                val send = Intent(Intent.ACTION_SEND)
-                    .setType("text/csv")
-                    .putExtra(Intent.EXTRA_STREAM, uri)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                context.startActivity(Intent.createChooser(send, tr("Eksportuj log", "Export log")))
+    // .ntm is what BTSearch's log analyzer and NetMonster read (BTSearch takes any .csv as Netmonitor CSV).
+    fun export(extension: String, mime: String, text: () -> String) {
+        scope.launch {
+            val file = withContext(Dispatchers.IO) {
+                val dir = File(context.cacheDir, "exports").apply { mkdirs() }
+                val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.ROOT).format(Date())
+                File(dir, "btmap-log-$stamp.$extension").apply { writeText(text()) }
             }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+            val send = Intent(Intent.ACTION_SEND)
+                .setType(mime)
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            context.startActivity(Intent.createChooser(send, tr("Eksportuj log", "Export log")))
+        }
+    }
+    WideButton(tr("Eksportuj dla BTSearch / NetMonster (.ntm)", "Export for BTSearch / NetMonster (.ntm)"), primary = true) {
+        if (logSize > 0) export("ntm", "application/octet-stream") { core.log.toNtm() }
+    }
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ActionButton(tr("Eksportuj CSV", "Export CSV"), enabled = logSize > 0) {
+            export("csv", "text/csv") { core.log.toCsv() }
         }
         ActionButton(tr("Wyczyść log", "Clear log"), enabled = logSize > 0, danger = true) { confirm = "log" }
     }

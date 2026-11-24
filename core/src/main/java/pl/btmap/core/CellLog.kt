@@ -10,6 +10,7 @@ import pl.btmap.core.location.GeoFix
 import pl.btmap.core.model.Cell
 import pl.btmap.core.model.CellIdentity
 import pl.btmap.core.model.CellRole
+import pl.btmap.core.model.Rat
 import pl.btmap.core.model.CellSignal
 import pl.btmap.core.model.NetworkSnapshot
 import pl.btmap.core.model.Plmn
@@ -174,6 +175,15 @@ class CellLog(
         }
     }
 
+    /**
+     * The log as a NetMonster cell file (.ntm), the format BTSearch's log analyzer and NetMonster
+     * read: `RAT;MCC;MNC;CID;TAC/LAC;NODE;PCI;LAT;LON;DESCRIPTION;CHANNEL`, unknown values as
+     * 2147483647. Cells without a network or a usable identity are left out.
+     */
+    fun toNtm(): String = buildString {
+        for (e in _entries.value) ntmLine(e)?.let { appendLine(it) }
+    }
+
     fun entry(key: String): LogEntry? = _entries.value.firstOrNull { it.key == key }
 
     fun clear() {
@@ -238,6 +248,35 @@ class CellLog(
     }
 
     companion object {
+        private const val NTM_UNKNOWN = "2147483647"
+
+        /** One cell as an .ntm line, or null when it cannot be identified. */
+        fun ntmLine(e: LogEntry): String? {
+            val id = e.identity
+            val plmn = e.plmn ?: return null
+            fun v(x: Number?) = x?.toString() ?: NTM_UNKNOWN
+            val lat = e.bestFix?.lat?.let { "%.6f".format(java.util.Locale.ROOT, it) }.orEmpty()
+            val lng = e.bestFix?.lng?.let { "%.6f".format(java.util.Locale.ROOT, it) }.orEmpty()
+            val (rat, cid, node) = when (id.rat) {
+                Rat.LTE -> {
+                    val enb = id.nodeId ?: id.cid?.shr(8) ?: return null
+                    val clid = id.localCellId?.toLong() ?: id.cid?.and(0xFF) ?: return null
+                    Triple("4G", clid.toString(), enb.toString())
+                }
+                Rat.NR -> Triple("5G", v(id.cid ?: return null), v(id.nodeId))
+                Rat.WCDMA -> {
+                    val ci = id.cid ?: return null
+                    val rnc = id.nodeId ?: (ci shr 16)
+                    val cellId = id.localCellId?.toLong() ?: (ci and 0xFFFF)
+                    Triple("3G", cellId.toString(), rnc.toString())
+                }
+                Rat.GSM -> Triple("2G", v(id.cid ?: return null), NTM_UNKNOWN)
+            }
+            return listOf(
+                rat, plmn.mcc, plmn.mnc, cid, v(id.areaCode), node, v(id.physicalId), lat, lng, "BTMap", v(id.channel),
+            ).joinToString(";")
+        }
+
         const val HISTORY = 120
         private const val PERSISTED_HISTORY = 60
     }
