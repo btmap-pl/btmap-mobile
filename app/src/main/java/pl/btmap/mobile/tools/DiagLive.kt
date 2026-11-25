@@ -15,6 +15,7 @@ import pl.btmap.core.diag.DownlinkStats
 import pl.btmap.core.diag.DownlinkWindow
 import pl.btmap.core.diag.Hdlc
 import pl.btmap.core.diag.LtePdsch
+import pl.btmap.core.diag.NrPdsch
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
@@ -25,7 +26,8 @@ import java.nio.ByteOrder
 
 /**
  * Live modem readout (root, Qualcomm): a DIAG session through diag_socket_log that switches on the
- * LTE PDSCH statistics log, decodes it and publishes downlink statistics twice a second. Runs only
+ * LTE and 5G NR PDSCH statistics logs, decodes them and publishes downlink statistics per radio
+ * twice a second. Runs only
  * while a screen holds it; [stop] switches the log off again and stops the tool.
  *
  * The modem answers commands seconds late and drops a request sent while an earlier one is still
@@ -40,7 +42,10 @@ object DiagLive {
         data object Off : State
         data class Connecting(val stage: Stage, val attempt: Int = 0) : State
         data class Running(
-            val stats: DownlinkStats?,
+            /** LTE downlink over the last second, or null without LTE data. */
+            val lte: DownlinkStats?,
+            /** 5G NR downlink (NSA or SA) over the last second, or null without NR data. */
+            val nr: DownlinkStats?,
             val packets: Long,
             val since: Long,
             val maskConfirmed: Boolean,
@@ -106,7 +111,8 @@ object DiagLive {
         if (tool == null) {
             _state.value = State.Failed("diag_socket_log not found"); return
         }
-        val window = DownlinkWindow(1_000)
+        val lteWindow = DownlinkWindow(1_000)
+        val nrWindow = DownlinkWindow(1_000)
         var packets = 0L
         var frames = 0L
         val since = System.currentTimeMillis()
@@ -122,9 +128,15 @@ object DiagLive {
                     val link = Link(s.getInputStream(), s.getOutputStream())
                     val count: (ByteArray) -> Unit = { f ->
                         frames++
-                        if (DiagCommands.logCode(f) == LtePdsch.CODE) {
-                            packets++
-                            DiagCommands.logPayload(f)?.let { window.add(LtePdsch.decode(it)) }
+                        when (DiagCommands.logCode(f)) {
+                            LtePdsch.CODE -> {
+                                packets++
+                                DiagCommands.logPayload(f)?.let { lteWindow.add(LtePdsch.decode(it)) }
+                            }
+                            NrPdsch.CODE -> {
+                                packets++
+                                DiagCommands.logPayload(f)?.let { nrWindow.add(NrPdsch.decode(it)) }
+                            }
                         }
                     }
 
@@ -138,7 +150,7 @@ object DiagLive {
                         ranges != null
                     }
                     val last = ranges?.getOrNull(DiagCommands.EQUIP_LTE_NR)?.takeIf { it > 0 } ?: 0x9FF
-                    val mask = DiagCommands.setMaskBits(DiagCommands.EQUIP_LTE_NR, last + 1, listOf(LtePdsch.CODE))
+                    val mask = DiagCommands.setMaskBits(DiagCommands.EQUIP_LTE_NR, last + 1, listOf(LtePdsch.CODE, NrPdsch.CODE))
 
                     // 2. Log mask, repeated until the modem confirms it (or PDSCH packets arrive).
                     var confirmed = false
@@ -149,7 +161,7 @@ object DiagLive {
                         link.send(mask)
                         confirmed = link.pump(4_000) { f ->
                             count(f)
-                            logConfigOp(f) == 3 || DiagCommands.logCode(f) == LtePdsch.CODE
+                            logConfigOp(f) == 3 || DiagCommands.logCode(f).let { it == LtePdsch.CODE || it == NrPdsch.CODE }
                         }
                     }
 
@@ -170,7 +182,7 @@ object DiagLive {
                             }
                             if (now - published >= 500) {
                                 published = now
-                                _state.value = State.Running(window.stats(now), packets, since, confirmed || packets > 0, attempts, frames)
+                                _state.value = State.Running(lteWindow.stats(now), nrWindow.stats(now), packets, since, confirmed || packets > 0, attempts, frames)
                             }
                         }
                     } finally {

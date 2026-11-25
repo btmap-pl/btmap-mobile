@@ -1837,7 +1837,7 @@ private fun ModemLivePage(settings: Settings, onChange: ((Settings) -> Settings)
     }
     val state by pl.btmap.mobile.tools.DiagLive.state.collectAsStateWithLifecycle()
     val running = state as? pl.btmap.mobile.tools.DiagLive.State.Running
-    val stats = running?.stats
+    val stats = running?.let { it.lte ?: it.nr }
 
     Card(Modifier.enterAnimation(1)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1855,7 +1855,7 @@ private fun ModemLivePage(settings: Settings, onChange: ((Settings) -> Settings)
                     is pl.btmap.mobile.tools.DiagLive.State.Connecting -> when (st.stage) {
                         pl.btmap.mobile.tools.DiagLive.Stage.STARTING -> tr("Uruchamiam diag_socket_log…", "Starting diag_socket_log…")
                         pl.btmap.mobile.tools.DiagLive.Stage.RANGES -> tr("Połączono · pytam modem o zakres logów…", "Connected · asking the modem for log ranges…")
-                        pl.btmap.mobile.tools.DiagLive.Stage.MASK -> tr("Włączam log PDSCH (próba ${st.attempt})…", "Switching the PDSCH log on (attempt ${st.attempt})…")
+                        pl.btmap.mobile.tools.DiagLive.Stage.MASK -> tr("Włączam logi PDSCH LTE i 5G (próba ${st.attempt})…", "Switching the LTE and 5G PDSCH logs on (attempt ${st.attempt})…")
                         pl.btmap.mobile.tools.DiagLive.Stage.LISTENING -> tr("Słucham…", "Listening…")
                     }
                     is pl.btmap.mobile.tools.DiagLive.State.Failed -> tr("Błąd: ", "Error: ") + st.message
@@ -1864,71 +1864,100 @@ private fun ModemLivePage(settings: Settings, onChange: ((Settings) -> Settings)
                             "Czekam na dane · maska ${if (st.maskConfirmed) "przyjęta" else "bez potwierdzenia"} (prób ${st.maskAttempts}) · ramek ${st.frames}, PDSCH ${st.packets}",
                             "Waiting for data · mask ${if (st.maskConfirmed) "accepted" else "not confirmed"} (attempts ${st.maskAttempts}) · frames ${st.frames}, PDSCH ${st.packets}",
                         )
-                        else tr("Na żywo · ${"%.0f".format(stats.blocksPerSecond)} bloków/s", "Live · ${"%.0f".format(stats.blocksPerSecond)} blocks/s")
+                        else {
+                            val blocks = listOfNotNull(st.lte, st.nr).sumOf { it.blocksPerSecond }
+                            tr("Na żywo · ${"%.0f".format(blocks)} bloków/s", "Live · ${"%.0f".format(blocks)} blocks/s")
+                        }
                 },
                 style = MaterialTheme.typography.bodyMedium, color = colors.muted,
             )
         }
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(stats?.let { "%.1f".format(it.mbps) } ?: "—", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+            val total = listOfNotNull(running?.lte, running?.nr).takeIf { it.isNotEmpty() }?.sumOf { it.mbps }
+            Text(total?.let { "%.1f".format(it) } ?: "—", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             Text(" Mb/s DL", style = MaterialTheme.typography.titleMedium, color = colors.muted, modifier = Modifier.padding(bottom = 6.dp))
         }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StatTile("MCS", stats?.let { "%.0f · %d".format(it.mcsAvg, it.mcsLast) } ?: "—", Modifier.weight(1f))
-            StatTile("BLER", stats?.let { "%.1f%%".format(it.bler * 100) } ?: "—", Modifier.weight(1f))
-            StatTile("RB", stats?.let { "%.0f · max %d".format(it.rbsAvg, it.rbsMax) } ?: "—", Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            // Spatial layers per block = MIMO rank (up to 4 with 4×4 MIMO).
-            StatTile(tr("Warstwy (rank)", "Layers (rank)"), stats?.let { "%.1f · max %d".format(it.layersAvg, it.layersMax) } ?: "—", Modifier.weight(1f))
-            StatTile(tr("Retransmisje", "Retransmissions"), stats?.let { "%.0f%%".format(it.retransmissions * 100) } ?: "—", Modifier.weight(1f))
-        }
-        stats?.let { st ->
-            Spacer(Modifier.height(8.dp))
+        if (running?.lte != null && running.nr != null) {
             Text(
-                "Rank " + (1..4).filter { (st.layers[it] ?: 0.0) > 0 }.joinToString("  ") { "$it: ${"%.0f".format((st.layers[it] ?: 0.0) * 100)}%" },
-                style = MaterialTheme.typography.labelSmall, color = colors.muted,
+                "LTE ${"%.1f".format(running.lte.mbps)} + 5G NR ${"%.1f".format(running.nr.mbps)} Mb/s",
+                style = MaterialTheme.typography.labelMedium, color = colors.muted,
             )
         }
-        Spacer(Modifier.height(14.dp))
-        Text(tr("Modulacja", "Modulation"), style = MaterialTheme.typography.labelMedium, color = colors.muted)
-        Spacer(Modifier.height(6.dp))
-        val mods = listOf(2 to "QPSK", 4 to "16QAM", 6 to "64QAM", 8 to "256QAM")
-        val modColors = listOf(colors.bad, colors.poor, colors.fair, colors.good)
-        Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(colors.meterTrack)) {
-            mods.forEachIndexed { i, (q, _) ->
-                val share = stats?.modulation?.get(q) ?: 0.0
-                if (share > 0) Box(Modifier.weight(share.toFloat()).fillMaxHeight().background(modColors[i]))
-            }
-            val rest = 1.0 - (stats?.modulation?.values?.sum() ?: 0.0)
-            if (rest > 0.0001) Box(Modifier.weight(rest.toFloat()).fillMaxHeight())
-        }
-        Spacer(Modifier.height(6.dp))
-        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            mods.forEachIndexed { i, (q, name) ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(modColors[i]))
-                    Text(" $name ${stats?.modulation?.get(q)?.let { "%.0f%%".format(it * 100) } ?: ""}", style = MaterialTheme.typography.labelSmall, color = colors.muted)
-                }
-            }
-        }
+    }
+    Card(Modifier.enterAnimation(1)) {
+        Label("LTE")
+        ModemStats(running?.lte, tr("Brak danych LTE", "No LTE data"))
+    }
+    Card(Modifier.enterAnimation(1)) {
+        Label("5G NR")
+        ModemStats(running?.nr, tr("Brak danych 5G — modem nie odbiera teraz 5G (NSA lub SA)", "No 5G data — the modem is not receiving 5G right now (NSA or SA)"))
     }
     Card(Modifier.enterAnimation(2)) {
         ToggleRow(
             tr("Pokazuj na ekranie Live", "Show on the Live screen"),
-            tr("Karta z Mb/s, MCS, BLER, rank i modulacją pod kartami SIM", "A card with Mb/s, MCS, BLER, rank and modulation below the SIM cards"),
+            tr("Karta z Mb/s, MCS, BLER, MIMO rank i modulacją (LTE i 5G) pod kartami SIM", "A card with Mb/s, MCS, BLER, MIMO rank and modulation (LTE and 5G) below the SIM cards"),
             settings.modemOnLive,
         ) { on -> onChange { it.copy(modemOnLive = on) } }
     }
     Hint(
         tr(
-            "Dane prosto z logów modemu Qualcomm (DIAG): statystyki PDSCH łącza w dół LTE z ostatniej sekundy. MCS: średni · ostatni. Ekran działa tylko gdy jest otwarty; po wyjściu logowanie w modemie się wyłącza. 5G NR wkrótce.",
-            "Straight from the Qualcomm modem's logs (DIAG): LTE downlink PDSCH statistics over the last second. MCS: average · last. Runs only while open; leaving switches the modem's logging off. 5G NR coming soon.",
+            "Dane prosto z logów modemu Qualcomm (DIAG): statystyki PDSCH łącza w dół LTE i 5G NR z ostatniej sekundy. MCS: średni · ostatni. MIMO rank: liczba warstw przestrzennych (do 4 przy MIMO 4×4); zależy od stacji i warunków, nie tylko od anten telefonu. Ekran działa tylko gdy jest otwarty; po wyjściu logowanie w modemie się wyłącza.",
+            "Straight from the Qualcomm modem's logs (DIAG): LTE and 5G NR downlink PDSCH statistics over the last second. MCS: average · last. MIMO rank: the number of spatial layers (up to 4 with 4×4 MIMO); it depends on the cell and conditions, not only on the phone's antennas. Runs only while open; leaving switches the modem's logging off.",
         ),
     )
+}
+
+/** Downlink figures of one radio (LTE or 5G NR): MCS, BLER, RBs, MIMO rank, retransmissions, modulation. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ModemStats(stats: pl.btmap.core.diag.DownlinkStats?, empty: String) {
+    val colors = Btmap.colors
+    if (stats == null) {
+        Hint(empty)
+        return
+    }
+    Row(verticalAlignment = Alignment.Bottom) {
+        Text("%.1f".format(stats.mbps), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(" Mb/s", style = MaterialTheme.typography.titleSmall, color = colors.muted, modifier = Modifier.padding(bottom = 3.dp))
+    }
+    Spacer(Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        StatTile("MCS", "%.0f · %d".format(stats.mcsAvg, stats.mcsLast), Modifier.weight(1f))
+        StatTile("BLER", "%.1f%%".format(stats.bler * 100), Modifier.weight(1f))
+        StatTile("RB", "%.0f · max %d".format(stats.rbsAvg, stats.rbsMax), Modifier.weight(1f))
+    }
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Spatial layers per block = MIMO rank (up to 4 with 4×4 MIMO).
+        StatTile("MIMO rank", "%.1f · max %d".format(stats.layersAvg, stats.layersMax), Modifier.weight(1f))
+        StatTile(tr("Retransmisje", "Retransmissions"), "%.0f%%".format(stats.retransmissions * 100), Modifier.weight(1f))
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "Rank " + (1..4).filter { (stats.layers[it] ?: 0.0) > 0 }.joinToString("  ") { "$it: ${"%.0f".format((stats.layers[it] ?: 0.0) * 100)}%" },
+        style = MaterialTheme.typography.labelSmall, color = colors.muted,
+    )
+    Spacer(Modifier.height(14.dp))
+    Text(tr("Modulacja", "Modulation"), style = MaterialTheme.typography.labelMedium, color = colors.muted)
+    Spacer(Modifier.height(6.dp))
+    val mods = listOf(2 to "QPSK", 4 to "16QAM", 6 to "64QAM", 8 to "256QAM")
+    val modColors = listOf(colors.bad, colors.poor, colors.fair, colors.good)
+    Row(Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)).background(colors.meterTrack)) {
+        mods.forEachIndexed { i, (q, _) ->
+            val share = stats.modulation[q] ?: 0.0
+            if (share > 0) Box(Modifier.weight(share.toFloat()).fillMaxHeight().background(modColors[i]))
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        mods.forEachIndexed { i, (q, name) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(modColors[i]))
+                Text(" $name ${"%.0f%%".format((stats.modulation[q] ?: 0.0) * 100)}", style = MaterialTheme.typography.labelSmall, color = colors.muted)
+            }
+        }
+    }
 }
 
 /**

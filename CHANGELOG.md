@@ -4,6 +4,20 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **5G NR on the live modem screen and the Live card** (root, Qualcomm): Mb/s, MCS, BLER, MIMO rank,
+  RBs, retransmissions and the modulation mix for the 5G carrier, next to LTE; in 5G NSA both are
+  shown with the total. Core decodes the NR5G MAC PDSCH status log (0xB887, format 3.13), worked
+  out from a Galaxy S25 recording on Digi RO; the transport block sizes match the 3GPP TS 38.214
+  calculation.
+
+### Changed
+- The MIMO figure is labelled *MIMO rank* everywhere (it was "Layers (rank)" on the live modem
+  screen and "Rank"/"MIMO" on the card), and the Live card no longer squeezes its figures on narrow
+  screens.
+
 ## [0.1.0-beta.15] - 2026-11-24
 
 ### Added
