@@ -4,7 +4,7 @@ All notable changes to BTMap Mobile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0-beta.16] - 2026-11-27
 
 ### Added
 - **5G NR on the live modem screen and the Live card** (root, Qualcomm): Mb/s, MCS, BLER, MIMO rank,
@@ -208,6 +208,7 @@ The first public beta.
   BTMap station source are not available to testers until the API is publicly deployed.
 - Band locking targets MediaTek modems.
 
+[0.1.0-beta.16]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.16
 [0.1.0-beta.15]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.15
 [0.1.0-beta.14]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.14
 [0.1.0-beta.13]: https://github.com/btmap-pl/btmap-mobile/releases/tag/v0.1.0-beta.13
